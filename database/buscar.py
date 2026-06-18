@@ -80,6 +80,25 @@ def buscar_por_asignatura(asignatura):
 
 
 def listar_practicas():
+    """
+    Trae solo las columnas que usa la vista VentanaBuscar.
+    IMPORTANTE: si agregas o quitas una columna aquí, debes actualizar
+    también los índices IDX_* en views/buscar_practica.py para que
+    sigan apuntando a la posición correcta.
+
+    'codigo' NO se incluye aquí a propósito: es solo el nombre interno
+    con el que se guarda el PDF en disco, no un dato que la vista de
+    búsqueda deba mostrar ni filtrar.
+
+    Orden actual (debe coincidir 1 a 1 con los IDX_* de la vista):
+        0: id
+        1: fecha_creacion
+        2: carrera
+        3: asignatura
+        4: tema_practica
+        5: ingeniero_revisor
+        6: pdf_url
+    """
 
     conexion = obtener_conexion()
     cursor = conexion.cursor()
@@ -87,7 +106,7 @@ def listar_practicas():
     cursor.execute("""
         SELECT
             id,
-            codigo,
+            fecha_creacion,
             carrera,
             asignatura,
             tema_practica,

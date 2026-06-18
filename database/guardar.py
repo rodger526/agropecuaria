@@ -13,7 +13,7 @@ def guardar_practica(practica):
 
         sql = """
         INSERT INTO practicas(
-            codigo,
+            fecha_creacion,
             carrera,
             semestre,
             asignatura,
@@ -38,7 +38,7 @@ def guardar_practica(practica):
 
         datos = (
 
-            practica.codigo,
+            practica.fecha_creacion,
 
             practica.carrera,
             practica.semestre,
@@ -63,7 +63,6 @@ def guardar_practica(practica):
         )
 
         cursor.execute(sql, datos)
-
         conexion.commit()
 
         print("Práctica guardada correctamente.")

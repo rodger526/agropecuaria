@@ -1,8 +1,10 @@
+from datetime import datetime
+
+
 class Practica:
 
     def __init__(
         self,
-        codigo,
 
         # DATOS INFORMATIVOS
         carrera,
@@ -26,7 +28,8 @@ class Practica:
         evidencias
     ):
 
-        self.codigo = codigo
+        # Fecha generada automáticamente (reemplaza al código)
+        self.fecha_creacion = datetime.now()
 
         self.carrera = carrera
         self.semestre = semestre
@@ -34,7 +37,6 @@ class Practica:
         self.unidad_silabo = unidad_silabo
         self.tipo_practica = tipo_practica
 
-        # Docente Responsable
         self.ingeniero_revisor = ingeniero_revisor
 
         self.lugar_ejecucion = lugar_ejecucion
