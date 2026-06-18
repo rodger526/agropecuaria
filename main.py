@@ -2,7 +2,7 @@ import customtkinter as ctk
 
 from views.buscar_practica import VentanaBuscar
 from views.nueva_practica import VentanaNuevaPractica
-from views.nueva_laboratorio import VentanaNuevaLaboratorio
+from views.nueva_laboratorio import VentanaNuevoLaboratorio
 
 # ─── Paleta ──────────────────────────────────────────────────────────
 BG_DARK     = "#0F1923"
@@ -213,7 +213,7 @@ class App(ctk.CTk):
         self._abrir_subventana(VentanaNuevaPractica)
 
     def _abrir_nueva_laboratorio(self):
-        self._abrir_subventana(VentanaNuevaLaboratorio)
+        self._abrir_subventana(VentanaNuevoLaboratorio)
 
     def _abrir_busqueda(self):
         self._abrir_subventana(VentanaBuscar)

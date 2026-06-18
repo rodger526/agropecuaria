@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ titulo }}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: Arial, sans-serif;
+    background: #0F1923;
+    color: #E8EDF2;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+    padding: 24px 16px;
+  }
+
+  h2 {
+    font-size: 1.2rem;
+    color: #4CAF7D;
+    margin-bottom: 6px;
+    text-align: center;
+  }
+
+  p.sub {
+    font-size: 0.82rem;
+    color: #8A9BB0;
+    margin-bottom: 18px;
+    text-align: center;
+  }
+
+  #firma-wrap {
+    border: 2px solid #2A3A50;
+    border-radius: 10px;
+    overflow: hidden;
+    background: #fff;
+    width: 100%;
+    max-width: 560px;
+  }
+
+  canvas {
+    display: block;
+    width: 100%;
+    height: 220px;
+    touch-action: none;
+    cursor: crosshair;
+  }
+
+  .btn-row {
+    display: flex;
+    gap: 10px;
+    margin-top: 16px;
+    width: 100%;
+    max-width: 560px;
+  }
+
+  button {
+    flex: 1;
+    padding: 14px;
+    font-size: 1rem;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: bold;
+    transition: opacity 0.15s;
+  }
+  button:active { opacity: 0.75; }
+
+  #btn-limpiar {
+    background: #1E2D42;
+    color: #8A9BB0;
+    border: 1px solid #2A3A50;
+  }
+
+  #btn-guardar {
+    background: #4CAF7D;
+    color: #0F1923;
+  }
+
+  #estado {
+    margin-top: 20px;
+    font-size: 0.9rem;
+    color: #8A9BB0;
+    text-align: center;
+    min-height: 28px;
+  }
+
+  #estado.ok  { color: #4CAF7D; font-weight: bold; }
+  #estado.err { color: #E05252; }
+</style>
+</head>
+<body>
+
+<h2>{{ titulo }}</h2>
+<p class="sub">Dibuja tu firma en el recuadro y pulsa <strong>Guardar</strong></p>
+
+<div id="firma-wrap">
+  <canvas id="canvas"></canvas>
+</div>
+
+<div class="btn-row">
+  <button id="btn-limpiar" onclick="limpiar()">Limpiar</button>
+  <button id="btn-guardar" onclick="guardar()">Guardar firma</button>
+</div>
+
+<div id="estado">Aún no firmado</div>
+
+<script>
+  const canvas  = document.getElementById("canvas");
+  const ctx     = canvas.getContext("2d");
+  const ROL     = "{{ rol }}";
+  let dibujando = false;
+
+  // Ajustar resolución real del canvas al tamaño CSS
+  function ajustarCanvas() {
+    const rect = canvas.getBoundingClientRect();
+    canvas.width  = rect.width  * window.devicePixelRatio;
+    canvas.height = rect.height * window.devicePixelRatio;
+    ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+    ctx.strokeStyle = "#111";
+    ctx.lineWidth   = 2.5;
+    ctx.lineCap     = "round";
+    ctx.lineJoin    = "round";
+  }
+  ajustarCanvas();
+  window.addEventListener("resize", ajustarCanvas);
+
+  // ── Mouse ─────────────────────────────────────────────────────────
+  canvas.addEventListener("mousedown", e => {
+    dibujando = true;
+    ctx.beginPath();
+    ctx.moveTo(e.offsetX, e.offsetY);
+  });
+  canvas.addEventListener("mousemove", e => {
+    if (!dibujando) return;
+    ctx.lineTo(e.offsetX, e.offsetY);
+    ctx.stroke();
+  });
+  canvas.addEventListener("mouseup",   () => dibujando = false);
+  canvas.addEventListener("mouseleave",() => dibujando = false);
+
+  // ── Touch ─────────────────────────────────────────────────────────
+  function posTouch(e) {
+    const rect = canvas.getBoundingClientRect();
+    const t = e.touches[0];
+    return { x: t.clientX - rect.left, y: t.clientY - rect.top };
+  }
+  canvas.addEventListener("touchstart", e => {
+    e.preventDefault();
+    const p = posTouch(e);
+    dibujando = true;
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+  }, { passive: false });
+  canvas.addEventListener("touchmove", e => {
+    e.preventDefault();
+    if (!dibujando) return;
+    const p = posTouch(e);
+    ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+  }, { passive: false });
+  canvas.addEventListener("touchend", () => dibujando = false);
+
+  // ── Acciones ──────────────────────────────────────────────────────
+  function limpiar() {
+    const rect = canvas.getBoundingClientRect();
+    ctx.clearRect(0, 0, rect.width, rect.height);
+    setEstado("", "");
+  }
+
+  function setEstado(msg, clase) {
+    const el = document.getElementById("estado");
+    el.textContent  = msg;
+    el.className    = clase;
+  }
+
+  function guardar() {
+    const dataUrl = canvas.toDataURL("image/png");
+
+    // Verificar que el canvas no esté vacío
+    const pixeles = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    const vacio   = pixeles.every(v => v === 0);
+    if (vacio) {
+      setEstado("⚠ El lienzo está vacío. Dibuja tu firma primero.", "err");
+      return;
+    }
+
+    setEstado("Guardando…", "");
+
+    fetch("/guardar_firma", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ firma: dataUrl, rol: ROL }),
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        setEstado("✔ Firma guardada correctamente. Puedes cerrar esta página.", "ok");
+        document.getElementById("btn-guardar").disabled = true;
+      } else {
+        setEstado("✘ Error al guardar. Intenta de nuevo.", "err");
+      }
+    })
+    .catch(() => setEstado("✘ Sin conexión con el servidor.", "err"));
+  }
+</script>
+</body>
+</html>

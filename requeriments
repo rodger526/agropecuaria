@@ -1,0 +1,7 @@
+customtkinter
+psycopg2
+dotenv
+reportlab
+flask 
+qrcode 
+pillow

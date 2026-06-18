@@ -25,7 +25,8 @@ class Practica:
         objetivo_general,
         materiales_equipos,
         descripcion_actividad,
-        evidencias
+        evidencias,
+        
     ):
 
         # Fecha generada automáticamente (reemplaza al código)
@@ -53,3 +54,5 @@ class Practica:
         self.evidencias = evidencias
 
         self.pdf_url = None
+        self.firma_docente = None
+        self.firma_comision = None
