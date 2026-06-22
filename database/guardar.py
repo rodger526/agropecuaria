@@ -29,10 +29,12 @@ def guardar_practica(practica):
             materiales_equipos,
             descripcion_actividad,
             evidencias,
-            pdf_url
+            pdf_url,
+            firma_docente,
+            firma_comision
         )
         VALUES(
-            %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s
+            %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s
         )
         """
 
@@ -58,7 +60,9 @@ def guardar_practica(practica):
             practica.descripcion_actividad,
             practica.evidencias,
 
-            practica.pdf_url
+            practica.pdf_url,
+            practica.firma_docente,
+            practica.firma_comision
 
         )
 

@@ -1,0 +1,14 @@
+{
+  "estudiantes": [
+    {
+      "nombre": "Rodger Muñoz",
+      "cedula": "1727330340",
+      "firma_ruta": "firma/firmas/estudiantes\\LAB-17bc00aaa6_1727330340_eb6227.png"
+    },
+    {
+      "nombre": "Juan",
+      "cedula": "1234567890",
+      "firma_ruta": "firma/firmas/estudiantes\\LAB-17bc00aaa6_1234567890_f8ad20.png"
+    }
+  ]
+}

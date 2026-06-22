@@ -10,8 +10,9 @@ def guardar_laboratorio(laboratorio):
 
     Cada dict de materiales/reactivos se espera con las claves
     "nombre" y "cantidad". Cada dict de estudiantes se espera con
-    las claves "nombre" y "cedula". Ajusta los INSERT de abajo si tu
-    estructura real es distinta.
+    las claves "nombre", "cedula" y opcionalmente "firma_ruta"
+    (ruta del PNG de la firma capturada por QR; None si el estudiante
+    se ingresó manualmente sin firmar).
 
     Devuelve True si todo se guardó correctamente, False si hubo error.
     """
@@ -115,15 +116,16 @@ def guardar_laboratorio(laboratorio):
                 reactivo.get("cantidad"),
             ))
 
-        # 4) Insertar estudiantes relacionados
+        # 4) Insertar estudiantes relacionados (incluye ruta de firma si existe)
         for estudiante in laboratorio.estudiantes:
             cursor.execute("""
-                INSERT INTO laboratorio_estudiantes (laboratorio_id, nombre, cedula)
-                VALUES (%s, %s, %s)
+                INSERT INTO laboratorio_estudiantes (laboratorio_id, nombre, cedula, firma_ruta)
+                VALUES (%s, %s, %s, %s)
             """, (
                 laboratorio_id,
                 estudiante.get("nombre"),
                 estudiante.get("cedula"),
+                estudiante.get("firma_ruta"),
             ))
 
         # Todo OK -> confirmar transacción completa

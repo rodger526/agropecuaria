@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Firma de Estudiante</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: Arial, sans-serif;
+    background: #0F1923;
+    color: #E8EDF2;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+    padding: 24px 16px;
+  }
+
+  h2 {
+    font-size: 1.2rem;
+    color: #4CAF7D;
+    margin-bottom: 4px;
+    text-align: center;
+  }
+
+  p.sub {
+    font-size: 0.82rem;
+    color: #8A9BB0;
+    margin-bottom: 18px;
+    text-align: center;
+  }
+
+  .campo {
+    width: 100%;
+    max-width: 420px;
+    margin-bottom: 12px;
+  }
+
+  .campo label {
+    display: block;
+    font-size: 0.78rem;
+    color: #8A9BB0;
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+
+  .campo input {
+    width: 100%;
+    padding: 12px;
+    border-radius: 8px;
+    border: 1px solid #2A3A50;
+    background: #1A2535;
+    color: #E8EDF2;
+    font-size: 1rem;
+  }
+  .campo input:focus {
+    outline: none;
+    border-color: #4CAF7D;
+  }
+  .campo small.error {
+    display: none;
+    color: #E05252;
+    font-size: 0.75rem;
+    margin-top: 4px;
+  }
+
+  #firma-wrap {
+    border: 2px solid #2A3A50;
+    border-radius: 10px;
+    overflow: hidden;
+    background: #fff;
+    width: 100%;
+    max-width: 420px;
+    margin-top: 6px;
+  }
+
+  canvas {
+    display: block;
+    width: 100%;
+    height: 200px;
+    touch-action: none;
+    cursor: crosshair;
+  }
+
+  .btn-row {
+    display: flex;
+    gap: 10px;
+    margin-top: 16px;
+    width: 100%;
+    max-width: 420px;
+  }
+
+  button {
+    flex: 1;
+    padding: 14px;
+    font-size: 1rem;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: bold;
+  }
+  button:active { opacity: 0.75; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  #btn-limpiar {
+    background: #1E2D42;
+    color: #8A9BB0;
+    border: 1px solid #2A3A50;
+  }
+
+  #btn-guardar {
+    background: #4CAF7D;
+    color: #0F1923;
+  }
+
+  #estado {
+    margin-top: 20px;
+    font-size: 0.9rem;
+    color: #8A9BB0;
+    text-align: center;
+    min-height: 28px;
+    max-width: 420px;
+  }
+
+  #estado.ok  { color: #4CAF7D; font-weight: bold; }
+  #estado.err { color: #E05252; }
+</style>
+</head>
+<body>
+
+<h2>📝 Firma del Estudiante</h2>
+<p class="sub">Completa tus datos y dibuja tu firma</p>
+
+<div class="campo">
+  <label>Nombre completo</label>
+  <input type="text" id="nombre" placeholder="Ej: Esther Cedeño Andrade" autocomplete="name">
+</div>
+
+<div class="campo">
+  <label>Cédula</label>
+  <input type="text" id="cedula" placeholder="10 dígitos" inputmode="numeric" maxlength="10">
+  <small class="error" id="err-cedula">La cédula debe tener 10 dígitos numéricos</small>
+</div>
+
+<div id="firma-wrap">
+  <canvas id="canvas"></canvas>
+</div>
+
+<div class="btn-row">
+  <button id="btn-limpiar" onclick="limpiar()">Limpiar</button>
+  <button id="btn-guardar" onclick="guardar()">Guardar firma</button>
+</div>
+
+<div id="estado"></div>
+
+<script>
+  const CODIGO_SESION = "{{ codigo_sesion }}";
+
+  const canvas  = document.getElementById("canvas");
+  const ctx     = canvas.getContext("2d");
+  let dibujando = false;
+
+  function ajustarCanvas() {
+    const rect = canvas.getBoundingClientRect();
+    canvas.width  = rect.width  * window.devicePixelRatio;
+    canvas.height = rect.height * window.devicePixelRatio;
+    ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+    ctx.strokeStyle = "#111";
+    ctx.lineWidth   = 2.5;
+    ctx.lineCap     = "round";
+    ctx.lineJoin    = "round";
+  }
+  ajustarCanvas();
+  window.addEventListener("resize", ajustarCanvas);
+
+  canvas.addEventListener("mousedown", e => {
+    dibujando = true;
+    ctx.beginPath();
+    ctx.moveTo(e.offsetX, e.offsetY);
+  });
+  canvas.addEventListener("mousemove", e => {
+    if (!dibujando) return;
+    ctx.lineTo(e.offsetX, e.offsetY);
+    ctx.stroke();
+  });
+  canvas.addEventListener("mouseup",    () => dibujando = false);
+  canvas.addEventListener("mouseleave", () => dibujando = false);
+
+  function posTouch(e) {
+    const rect = canvas.getBoundingClientRect();
+    const t = e.touches[0];
+    return { x: t.clientX - rect.left, y: t.clientY - rect.top };
+  }
+  canvas.addEventListener("touchstart", e => {
+    e.preventDefault();
+    const p = posTouch(e);
+    dibujando = true;
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+  }, { passive: false });
+  canvas.addEventListener("touchmove", e => {
+    e.preventDefault();
+    if (!dibujando) return;
+    const p = posTouch(e);
+    ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+  }, { passive: false });
+  canvas.addEventListener("touchend", () => dibujando = false);
+
+  function limpiar() {
+    const rect = canvas.getBoundingClientRect();
+    ctx.clearRect(0, 0, rect.width, rect.height);
+  }
+
+  function setEstado(msg, clase) {
+    const el = document.getElementById("estado");
+    el.textContent = msg;
+    el.className   = clase;
+  }
+
+  // Solo permitir dígitos en cédula
+  document.getElementById("cedula").addEventListener("input", e => {
+    e.target.value = e.target.value.replace(/\D/g, "").slice(0, 10);
+  });
+
+  function guardar() {
+    const nombre = document.getElementById("nombre").value.trim();
+    const cedula = document.getElementById("cedula").value.trim();
+    const errCedula = document.getElementById("err-cedula");
+
+    errCedula.style.display = "none";
+
+    if (!nombre) {
+      setEstado("⚠ Ingresa tu nombre completo.", "err");
+      return;
+    }
+    if (cedula.length !== 10) {
+      errCedula.style.display = "block";
+      setEstado("⚠ Revisa el número de cédula.", "err");
+      return;
+    }
+
+    const dataUrl = canvas.toDataURL("image/png");
+    const pixeles = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    const vacio   = pixeles.every(v => v === 0);
+    if (vacio) {
+      setEstado("⚠ Dibuja tu firma antes de guardar.", "err");
+      return;
+    }
+
+    setEstado("Guardando…", "");
+    document.getElementById("btn-guardar").disabled = true;
+
+    fetch("/guardar_firma_estudiante", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        codigo_sesion: CODIGO_SESION,
+        nombre: nombre,
+        cedula: cedula,
+        firma: dataUrl,
+      }),
+    })
+    .then(r => r.json().then(data => ({ status: r.status, data })))
+    .then(({ status, data }) => {
+      if (status === 200 && data.ok) {
+        setEstado("✔ Asistencia registrada correctamente. ¡Gracias!", "ok");
+        limpiar();
+        document.getElementById("btn-guardar").disabled = false;
+      } else {
+        setEstado("✘ " + (data.error || "Error al guardar."), "err");
+        document.getElementById("btn-guardar").disabled = false;
+      }
+    })
+    .catch(() => {
+      setEstado("✘ Sin conexión con el servidor.", "err");
+      document.getElementById("btn-guardar").disabled = false;
+    });
+  }
+</script>
+</body>
+</html>
