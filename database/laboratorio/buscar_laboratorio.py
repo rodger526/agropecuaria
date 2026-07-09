@@ -4,8 +4,8 @@ from database.conexion import obtener_conexion
 def listar_laboratorios():
     """
     Devuelve un listado resumido de laboratorios (para tablas/listas en la UI).
-    Columnas: id, codigo, laboratorio, asignatura, docente_responsable,
-              fecha_practica, pdf_url
+    Columnas: id, fecha_practica, carrera, laboratorio, asignatura,
+              docente_responsable, tema_practica, pdf_url
     """
 
     conexion = None
@@ -18,11 +18,12 @@ def listar_laboratorios():
         cursor.execute("""
             SELECT
                 id,
-                codigo,
+                fecha_practica,
+                carrera,
                 laboratorio,
                 asignatura,
                 docente_responsable,
-                fecha_practica,
+                tema_practica,
                 pdf_url
             FROM laboratorios
             ORDER BY id DESC

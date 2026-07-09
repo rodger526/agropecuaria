@@ -1,5 +1,6 @@
 import customtkinter as ctk
 
+from views.buscar_laboratorio import VentanaBuscarLaboratorio
 from views.buscar_practica import VentanaBuscar
 from views.nueva_practica import VentanaNuevaPractica
 from views.nueva_laboratorio import VentanaNuevoLaboratorio
@@ -28,6 +29,9 @@ class _MenuCard(ctk.CTkFrame):
             border_color=BORDER,
             cursor="hand2",
         )
+
+        self.configure(height=95)
+        self.pack_propagate(False)
 
         # Borde izquierdo de acento
         ctk.CTkFrame(self, width=4, fg_color=ACCENT, corner_radius=2).pack(
@@ -109,7 +113,7 @@ class App(ctk.CTk):
     def _construir_interfaz(self):
 
         # ── Header ────────────────────────────────────────────────────
-        header = ctk.CTkFrame(self, fg_color=BG_PANEL, corner_radius=0, height=72)
+        header = ctk.CTkFrame(self, fg_color=BG_PANEL, corner_radius=0, height=50)
         header.pack(fill="x")
         header.pack_propagate(False)
 
@@ -143,7 +147,7 @@ class App(ctk.CTk):
 
         # ── Cuerpo ────────────────────────────────────────────────────
         body = ctk.CTkFrame(self, fg_color="transparent")
-        body.pack(expand=False, fill="both", padx=24, pady=20)
+        body.pack(expand=False, fill="both", padx=15, pady=10)
 
         ctk.CTkLabel(
             body,
@@ -165,7 +169,17 @@ class App(ctk.CTk):
                 self._abrir_nueva_laboratorio,
             ),
             (
-                "🔍", "Buscar práctica",
+                "🔍", "Buscar planificacion de prácticas",
+                "Consultar y revisar prácticas registradas",
+                self._abrir_busqueda,
+            ),
+            (
+                "📂", "Buscar practica de laboratorio",
+                "Consultar y revisar prácticas registradas",
+                self._abrir_busqueda_laboratorio,
+            ),
+            (
+                "➕", "Agregar practica ",
                 "Consultar y revisar prácticas registradas",
                 self._abrir_busqueda,
             ),
@@ -218,6 +232,8 @@ class App(ctk.CTk):
     def _abrir_busqueda(self):
         self._abrir_subventana(VentanaBuscar)
 
+    def _abrir_busqueda_laboratorio(self):
+        self._abrir_subventana(VentanaBuscarLaboratorio)
 
 if __name__ == "__main__":
     ctk.set_appearance_mode("dark")
