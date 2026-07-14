@@ -1,19 +1,19 @@
-from tkinter import messagebox
-
 from database.eliminar import eliminar_practica
 
+
 def eliminar(id_practica):
+    """
+    Elimina una práctica mediante la capa de base de datos.
 
-    respuesta = messagebox.askyesno(
-        "Eliminar",
-        "¿Desea eliminar el registro?"
-    )
+    La confirmación y los mensajes visuales deben manejarse desde
+    views/buscar_practica.py para evitar mostrar dos confirmaciones.
 
-    if respuesta:
+    Devuelve:
+        True  -> se eliminó correctamente.
+        False -> no se pudo eliminar.
+    """
 
-        eliminar_practica(id_practica)
+    if id_practica is None:
+        return False
 
-        messagebox.showinfo(
-            "Correcto",
-            "Registro eliminado"
-        )
+    return eliminar_practica(id_practica)

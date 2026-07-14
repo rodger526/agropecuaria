@@ -1,1 +1,7 @@
 .env
+__pycache__/
+*.pyc
+pdfs_planificacion/
+pdfs_laboratorio/
+firma/firmas/
+firma/sesiones/

@@ -2,95 +2,185 @@ from database.conexion import obtener_conexion
 
 
 def buscar_por_codigo(codigo):
+    """
+    Busca una práctica por su código.
 
-    conexion = obtener_conexion()
-    cursor = conexion.cursor()
+    Devuelve una tupla completa o None.
+    """
 
-    cursor.execute("""
-        SELECT *
-        FROM practicas
-        WHERE codigo = %s
-    """, (codigo,))
+    conexion = None
+    cursor = None
 
-    resultado = cursor.fetchone()
+    try:
+        codigo = str(codigo or "").strip()
 
-    cursor.close()
-    conexion.close()
+        if not codigo:
+            return None
 
-    return resultado
+        conexion = obtener_conexion()
+        cursor = conexion.cursor()
+
+        cursor.execute("""
+            SELECT *
+            FROM practicas
+            WHERE codigo = %s
+        """, (
+            codigo,
+        ))
+
+        return cursor.fetchone()
+
+    except Exception as e:
+        print("\n===== ERROR BUSCANDO PRÁCTICA POR CÓDIGO =====")
+        print(e)
+        print("===============================================\n")
+
+        return None
+
+    finally:
+        if cursor:
+            cursor.close()
+
+        if conexion:
+            conexion.close()
 
 
 def buscar_por_id(id_practica):
+    """
+    Busca una práctica por id.
 
-    conexion = obtener_conexion()
-    cursor = conexion.cursor()
+    Devuelve una tupla completa o None.
+    """
 
-    cursor.execute("""
-        SELECT *
-        FROM practicas
-        WHERE id = %s
-    """, (id_practica,))
+    conexion = None
+    cursor = None
 
-    resultado = cursor.fetchone()
+    try:
+        if id_practica is None:
+            return None
 
-    cursor.close()
-    conexion.close()
+        conexion = obtener_conexion()
+        cursor = conexion.cursor()
 
-    return resultado
+        cursor.execute("""
+            SELECT *
+            FROM practicas
+            WHERE id = %s
+        """, (
+            id_practica,
+        ))
+
+        return cursor.fetchone()
+
+    except Exception as e:
+        print("\n===== ERROR BUSCANDO PRÁCTICA POR ID =====")
+        print(e)
+        print("==========================================\n")
+
+        return None
+
+    finally:
+        if cursor:
+            cursor.close()
+
+        if conexion:
+            conexion.close()
 
 
 def buscar_por_carrera(carrera):
+    """
+    Busca prácticas por coincidencia parcial de carrera.
 
-    conexion = obtener_conexion()
-    cursor = conexion.cursor()
+    Devuelve una lista de tuplas.
+    """
 
-    cursor.execute("""
-        SELECT *
-        FROM practicas
-        WHERE carrera ILIKE %s
-        ORDER BY id DESC
-    """, (f"%{carrera}%",))
+    conexion = None
+    cursor = None
 
-    resultados = cursor.fetchall()
+    try:
+        carrera = str(carrera or "").strip()
 
-    cursor.close()
-    conexion.close()
+        conexion = obtener_conexion()
+        cursor = conexion.cursor()
 
-    return resultados
+        cursor.execute("""
+            SELECT *
+            FROM practicas
+            WHERE carrera ILIKE %s
+            ORDER BY id DESC
+        """, (
+            f"%{carrera}%",
+        ))
+
+        return cursor.fetchall()
+
+    except Exception as e:
+        print("\n===== ERROR BUSCANDO PRÁCTICAS POR CARRERA =====")
+        print(e)
+        print("================================================\n")
+
+        return []
+
+    finally:
+        if cursor:
+            cursor.close()
+
+        if conexion:
+            conexion.close()
 
 
 def buscar_por_asignatura(asignatura):
+    """
+    Busca prácticas por coincidencia parcial de asignatura.
 
-    conexion = obtener_conexion()
-    cursor = conexion.cursor()
+    Devuelve una lista de tuplas.
+    """
 
-    cursor.execute("""
-        SELECT *
-        FROM practicas
-        WHERE asignatura ILIKE %s
-        ORDER BY id DESC
-    """, (f"%{asignatura}%",))
+    conexion = None
+    cursor = None
 
-    resultados = cursor.fetchall()
+    try:
+        asignatura = str(asignatura or "").strip()
 
-    cursor.close()
-    conexion.close()
+        conexion = obtener_conexion()
+        cursor = conexion.cursor()
 
-    return resultados
+        cursor.execute("""
+            SELECT *
+            FROM practicas
+            WHERE asignatura ILIKE %s
+            ORDER BY id DESC
+        """, (
+            f"%{asignatura}%",
+        ))
+
+        return cursor.fetchall()
+
+    except Exception as e:
+        print(
+            "\n===== ERROR BUSCANDO PRÁCTICAS POR ASIGNATURA ====="
+        )
+        print(e)
+        print(
+            "===================================================\n"
+        )
+
+        return []
+
+    finally:
+        if cursor:
+            cursor.close()
+
+        if conexion:
+            conexion.close()
 
 
 def listar_practicas():
     """
-    Trae solo las columnas que usa la vista VentanaBuscar.
-    IMPORTANTE: si agregas o quitas una columna aquí, debes actualizar
-    también los índices IDX_* en views/buscar_practica.py para que
-    sigan apuntando a la posición correcta.
+    Devuelve únicamente las prácticas que poseen un PDF almacenado
+    en línea dentro de Supabase Storage.
 
-    'codigo' NO se incluye aquí a propósito: es solo el nombre interno
-    con el que se guarda el PDF en disco, no un dato que la vista de
-    búsqueda deba mostrar ni filtrar.
-
-    Orden actual (debe coincidir 1 a 1 con los IDX_* de la vista):
+    Orden de columnas:
         0: id
         1: fecha_creacion
         2: carrera
@@ -98,45 +188,89 @@ def listar_practicas():
         4: tema_practica
         5: ingeniero_revisor
         6: pdf_url
+
+    Este orden debe coincidir con los IDX_* definidos en
+    views/buscar_practica.py.
     """
 
-    conexion = obtener_conexion()
-    cursor = conexion.cursor()
+    conexion = None
+    cursor = None
 
-    cursor.execute("""
-        SELECT
-            id,
-            fecha_creacion,
-            carrera,
-            asignatura,
-            tema_practica,
-            ingeniero_revisor,
-            pdf_url
-        FROM practicas
-        ORDER BY id DESC
-    """)
+    try:
+        conexion = obtener_conexion()
+        cursor = conexion.cursor()
 
-    resultados = cursor.fetchall()
+        cursor.execute("""
+            SELECT
+                id,
+                fecha_creacion,
+                carrera,
+                asignatura,
+                tema_practica,
+                ingeniero_revisor,
+                pdf_url
+            FROM practicas
+            WHERE pdf_url IS NOT NULL
+              AND TRIM(pdf_url) <> ''
+              AND pdf_url LIKE 'https://%'
+              AND pdf_url LIKE '%supabase.co/storage/v1/object/%'
+            ORDER BY id DESC
+        """)
 
-    cursor.close()
-    conexion.close()
+        return cursor.fetchall()
 
-    return resultados
+    except Exception as e:
+        print("\n========== ERROR LISTANDO PRÁCTICAS ==========")
+        print(e)
+        print("==============================================\n")
+
+        return []
+
+    finally:
+        if cursor:
+            cursor.close()
+
+        if conexion:
+            conexion.close()
 
 
 def total_practicas():
+    """
+    Devuelve el número de prácticas visibles en la ventana de búsqueda.
 
-    conexion = obtener_conexion()
-    cursor = conexion.cursor()
+    Cuenta únicamente registros cuyo PDF está almacenado en línea.
+    """
 
-    cursor.execute("""
-        SELECT COUNT(*)
-        FROM practicas
-    """)
+    conexion = None
+    cursor = None
 
-    total = cursor.fetchone()[0]
+    try:
+        conexion = obtener_conexion()
+        cursor = conexion.cursor()
 
-    cursor.close()
-    conexion.close()
+        cursor.execute("""
+            SELECT COUNT(*)
+            FROM practicas
+            WHERE pdf_url IS NOT NULL
+              AND TRIM(pdf_url) <> ''
+              AND pdf_url LIKE 'https://%'
+              AND pdf_url LIKE '%supabase.co/storage/v1/object/%'
+        """)
 
-    return total
+        resultado = cursor.fetchone()
+
+        return resultado[0] if resultado else 0
+
+    except Exception as e:
+        print("\n========== ERROR CONTANDO PRÁCTICAS ==========")
+        print(e)
+        print("==============================================\n")
+
+        return 0
+
+    finally:
+        if cursor:
+            cursor.close()
+
+        if conexion:
+            conexion.close()

@@ -3,28 +3,60 @@ from database.conexion import obtener_conexion
 
 def guardar_laboratorio(laboratorio):
     """
-    Guarda un objeto Laboratorio en la tabla `laboratorios` y, si trae
-    materiales/reactivos/estudiantes, los inserta en sus tablas
-    relacionadas (laboratorio_materiales, laboratorio_reactivos,
-    laboratorio_estudiantes) usando el id recién generado como FK.
+    Guarda un objeto Laboratorio en la tabla `laboratorios`.
 
-    Cada dict de materiales/reactivos se espera con las claves
-    "nombre" y "cantidad". Cada dict de estudiantes se espera con
-    las claves "nombre", "cedula" y opcionalmente "firma_ruta"
-    (ruta del PNG de la firma capturada por QR; None si el estudiante
-    se ingresó manualmente sin firmar).
+    También guarda:
+        - materiales;
+        - reactivos;
+        - estudiantes;
+        - encargado del laboratorio;
+        - cargo del encargado;
+        - firma del encargado;
+        - firma del docente;
+        - código de sesión.
 
-    Devuelve True si todo se guardó correctamente, False si hubo error.
+    Devuelve:
+        True si todo se guardó correctamente.
+        False si ocurrió algún error.
     """
 
     conexion = None
     cursor = None
 
     try:
+        if laboratorio is None:
+            raise ValueError(
+                "El objeto laboratorio no puede ser None."
+            )
+
+        if not str(
+            laboratorio.codigo or ""
+        ).strip():
+            raise ValueError(
+                "El laboratorio no tiene un código válido."
+            )
+
+        if not str(
+            laboratorio.laboratorio or ""
+        ).strip():
+            raise ValueError(
+                "Debe seleccionar un laboratorio."
+            )
+
+        if not str(
+            laboratorio.docente_responsable or ""
+        ).strip():
+            raise ValueError(
+                "Debe ingresar el docente responsable."
+            )
+
         conexion = obtener_conexion()
         cursor = conexion.cursor()
 
-        # 1) Insertar el laboratorio y recuperar su id con RETURNING
+        # ============================================================
+        # 1. Insertar registro principal
+        # ============================================================
+
         cursor.execute("""
             INSERT INTO laboratorios (
                 codigo,
@@ -48,22 +80,18 @@ def guardar_laboratorio(laboratorio):
                 resultados,
                 conclusiones,
                 observaciones,
-                pdf_url
+                pdf_url,
+                encargado_laboratorio,
+                cargo_encargado,
+                firma_encargado_ruta,
+                firma_docente_ruta,
+                codigo_sesion
             )
             VALUES (
-                %s, %s, %s,
-                %s, %s,
-                %s, %s,
-                %s, %s,
-                %s, %s,
-                %s, %s,
-                %s, %s,
-                %s,
-                %s, %s,
-                %s,
-                %s,
-                %s,
-                %s
+                %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, %s
             )
             RETURNING id
         """, (
@@ -89,57 +117,150 @@ def guardar_laboratorio(laboratorio):
             laboratorio.conclusiones,
             laboratorio.observaciones,
             laboratorio.pdf_url,
+            laboratorio.encargado_laboratorio,
+            laboratorio.cargo_encargado,
+            laboratorio.firma_encargado_ruta,
+            laboratorio.firma_docente_ruta,
+            laboratorio.codigo_sesion,
         ))
 
-        laboratorio_id = cursor.fetchone()[0]
+        resultado = cursor.fetchone()
+
+        if not resultado:
+            raise RuntimeError(
+                "PostgreSQL no devolvió el ID del laboratorio."
+            )
+
+        laboratorio_id = resultado[0]
         laboratorio.id = laboratorio_id
 
-        # 2) Insertar materiales relacionados
-        for material in laboratorio.materiales:
+        # ============================================================
+        # 2. Insertar materiales
+        # ============================================================
+
+        for material in laboratorio.materiales or []:
+            if not isinstance(
+                material,
+                dict,
+            ):
+                continue
+
+            nombre = str(
+                material.get("nombre") or ""
+            ).strip()
+
+            cantidad = material.get("cantidad")
+
+            if not nombre:
+                continue
+
             cursor.execute("""
-                INSERT INTO laboratorio_materiales (laboratorio_id, nombre, cantidad)
+                INSERT INTO laboratorio_materiales (
+                    laboratorio_id,
+                    nombre,
+                    cantidad
+                )
                 VALUES (%s, %s, %s)
             """, (
                 laboratorio_id,
-                material.get("nombre"),
-                material.get("cantidad"),
+                nombre,
+                cantidad,
             ))
 
-        # 3) Insertar reactivos relacionados
-        for reactivo in laboratorio.reactivos:
+        # ============================================================
+        # 3. Insertar reactivos
+        # ============================================================
+
+        for reactivo in laboratorio.reactivos or []:
+            if not isinstance(
+                reactivo,
+                dict,
+            ):
+                continue
+
+            nombre = str(
+                reactivo.get("nombre") or ""
+            ).strip()
+
+            cantidad = reactivo.get("cantidad")
+
+            if not nombre:
+                continue
+
             cursor.execute("""
-                INSERT INTO laboratorio_reactivos (laboratorio_id, nombre, cantidad)
+                INSERT INTO laboratorio_reactivos (
+                    laboratorio_id,
+                    nombre,
+                    cantidad
+                )
                 VALUES (%s, %s, %s)
             """, (
                 laboratorio_id,
-                reactivo.get("nombre"),
-                reactivo.get("cantidad"),
+                nombre,
+                cantidad,
             ))
 
-        # 4) Insertar estudiantes relacionados (incluye ruta de firma si existe)
-        for estudiante in laboratorio.estudiantes:
+        # ============================================================
+        # 4. Insertar estudiantes
+        # ============================================================
+
+        for estudiante in laboratorio.estudiantes or []:
+            if not isinstance(
+                estudiante,
+                dict,
+            ):
+                continue
+
+            nombre = str(
+                estudiante.get("nombre") or ""
+            ).strip()
+
+            cedula = estudiante.get("cedula")
+            firma_ruta = estudiante.get("firma_ruta")
+
+            if not nombre:
+                continue
+
             cursor.execute("""
-                INSERT INTO laboratorio_estudiantes (laboratorio_id, nombre, cedula, firma_ruta)
+                INSERT INTO laboratorio_estudiantes (
+                    laboratorio_id,
+                    nombre,
+                    cedula,
+                    firma_ruta
+                )
                 VALUES (%s, %s, %s, %s)
             """, (
                 laboratorio_id,
-                estudiante.get("nombre"),
-                estudiante.get("cedula"),
-                estudiante.get("firma_ruta"),
+                nombre,
+                cedula,
+                firma_ruta,
             ))
 
-        # Todo OK -> confirmar transacción completa
         conexion.commit()
+
+        print(
+            f"Laboratorio guardado correctamente. ID: {laboratorio_id}"
+        )
+
         return True
 
-    except Exception as e:
-        print(e)
+    except Exception as error:
+        print(
+            "\n========== ERROR AL GUARDAR LABORATORIO =========="
+        )
+        print(error)
+        print(
+            "==================================================\n"
+        )
+
         if conexion:
             conexion.rollback()
+
         return False
 
     finally:
         if cursor:
             cursor.close()
+
         if conexion:
             conexion.close()

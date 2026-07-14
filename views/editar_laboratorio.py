@@ -1,472 +1,972 @@
-import customtkinter as ctk
+import os
+from datetime import datetime
 from tkinter import messagebox
 
-from database.laboratorio.editar_laboratorio import actualizar_laboratorio
+from database.laboratorio.editar_laboratorio import (
+    actualizar_laboratorio,
+)
 from models.laboratorio import Laboratorio
-
-# ─── Paleta compartida ───────────────────────────────────────────────
-BG_DARK     = "#0F1923"
-BG_PANEL    = "#1A2535"
-BG_CARD     = "#1E2D42"
-ACCENT      = "#4CAF7D"
-ACCENT_DARK = "#3A9166"
-TEXT_PRI    = "#E8EDF2"
-TEXT_SEC    = "#8A9BB0"
-BORDER      = "#2A3A50"
-RED         = "#E05252"
-RED_DARK    = "#B83C3C"
-
-
-def _label(parent, text):
-    return ctk.CTkLabel(
-        parent, text=text.upper(),
-        font=("Consolas", 11, "bold"),
-        text_color=ACCENT, anchor="w",
-    )
+from pdf.generador_pdf_laboratorio import (
+    generar_pdf_laboratorio,
+)
+from storage.subir_pdf_laboratorio import (
+    subir_pdf_laboratorio,
+)
+from views.nueva_laboratorio import (
+    RUTA_FIRMA_DOCENTE_LAB,
+    RUTA_FIRMA_ENCARGADO_LAB,
+    VentanaNuevoLaboratorio,
+    _normalizar_hora,
+)
 
 
-def _entry(parent, placeholder=""):
-    return ctk.CTkEntry(
-        parent,
-        fg_color=BG_DARK, border_color=BORDER, border_width=1,
-        text_color=TEXT_PRI, placeholder_text_color=TEXT_SEC,
-        placeholder_text=placeholder,
-        font=("Consolas", 13), corner_radius=6, height=38,
-    )
+class VentanaEditarLaboratorio(
+    VentanaNuevoLaboratorio
+):
+    """
+    Ventana para editar un registro de laboratorio existente.
 
+    Reutiliza el formulario de VentanaNuevoLaboratorio y carga:
 
-def _textbox(parent, height=110):
-    return ctk.CTkTextbox(
-        parent, height=height,
-        fg_color=BG_DARK, border_color=BORDER, border_width=1,
-        text_color=TEXT_PRI, font=("Consolas", 13), corner_radius=6,
-    )
+        - datos informativos;
+        - datos académicos;
+        - planificación;
+        - materiales;
+        - reactivos;
+        - estudiantes;
+        - responsable del laboratorio;
+        - firma del docente;
+        - firma del encargado;
+        - URL anterior del PDF.
+    """
 
-
-def _section_card(parent, title, subtitle=""):
-    outer = ctk.CTkFrame(parent, fg_color=BG_PANEL, corner_radius=10)
-    outer.pack(fill="x", pady=(0, 16))
-    ctk.CTkFrame(outer, width=4, fg_color=ACCENT, corner_radius=2).pack(side="left", fill="y")
-    inner = ctk.CTkFrame(outer, fg_color="transparent")
-    inner.pack(side="left", fill="both", expand=True, padx=16, pady=14)
-    ctk.CTkLabel(
-        inner, text=title, font=("Consolas", 13, "bold"),
-        text_color=ACCENT, anchor="w",
-    ).pack(anchor="w", pady=(0, 2))
-    if subtitle:
-        ctk.CTkLabel(
-            inner, text=subtitle, font=("Consolas", 10),
-            text_color=TEXT_SEC, anchor="w",
-        ).pack(anchor="w", pady=(0, 8))
-    return inner
-
-
-class VentanaEditarLaboratorio(ctk.CTkToplevel):
-
-    def __init__(self, master, registro: Laboratorio):
-        super().__init__(master)
-
-        self.registro = registro
-        self.id_lab   = registro.id
-        self.codigo   = registro.codigo
-        self.pdf_url  = registro.pdf_url
-
-        self._filas_materiales   = []
-        self._filas_reactivos    = []
-        self._filas_estudiantes  = []
-
-        self.title("Editar Laboratorio")
-        self.geometry("1100x900")
-        self.configure(fg_color=BG_DARK)
-
-        # ── Header ────────────────────────────────────────────────────
-        header = ctk.CTkFrame(self, fg_color=BG_PANEL, corner_radius=0, height=68)
-        header.pack(fill="x")
-        header.pack_propagate(False)
-
-        ctk.CTkLabel(
-            header, text="✏  EDITAR LABORATORIO",
-            font=("Consolas", 15, "bold"), text_color=TEXT_PRI,
-        ).pack(side="left", padx=20)
-
-        ctk.CTkLabel(
-            header, text=f"ID #{self.id_lab}",
-            font=("Consolas", 12, "bold"), text_color=ACCENT,
-        ).pack(side="right", padx=20)
-
-        ctk.CTkFrame(self, height=3, fg_color=ACCENT, corner_radius=0).pack(fill="x")
-
-        # ── Scroll ────────────────────────────────────────────────────
-        scroll = ctk.CTkScrollableFrame(
-            self, fg_color=BG_DARK,
-            scrollbar_button_color=ACCENT,
-            scrollbar_button_hover_color=ACCENT_DARK,
-        )
-        scroll.pack(fill="both", expand=True, padx=20, pady=20)
-
-        # ══ SECCIÓN 1 — DATOS INFORMATIVOS ═══════════════════════════
-        s1 = _section_card(scroll, "1.  DATOS INFORMATIVOS")
-
-        row1 = ctk.CTkFrame(s1, fg_color="transparent")
-        row1.pack(fill="x", pady=(6, 0))
-        col_a = ctk.CTkFrame(row1, fg_color="transparent")
-        col_a.pack(side="left", fill="x", expand=True, padx=(0, 8))
-        _label(col_a, "Laboratorio").pack(anchor="w")
-        self.laboratorio = _entry(col_a)
-        self.laboratorio.insert(0, registro.laboratorio or "")
-        self.laboratorio.pack(fill="x", pady=5)
-
-        col_b = ctk.CTkFrame(row1, fg_color="transparent")
-        col_b.pack(side="left", fill="x", expand=True, padx=(8, 0))
-        _label(col_b, "N° Estudiantes").pack(anchor="w")
-        self.numero_estudiantes = _entry(col_b)
-        self.numero_estudiantes.insert(0, str(registro.numero_estudiantes or ""))
-        self.numero_estudiantes.pack(fill="x", pady=5)
-
-        row2 = ctk.CTkFrame(s1, fg_color="transparent")
-        row2.pack(fill="x", pady=(6, 0))
-        col_c = ctk.CTkFrame(row2, fg_color="transparent")
-        col_c.pack(side="left", fill="x", expand=True, padx=(0, 8))
-        _label(col_c, "Asignatura").pack(anchor="w")
-        self.asignatura = _entry(col_c)
-        self.asignatura.insert(0, registro.asignatura or "")
-        self.asignatura.pack(fill="x", pady=5)
-
-        col_d = ctk.CTkFrame(row2, fg_color="transparent")
-        col_d.pack(side="left", fill="x", expand=True, padx=(8, 0))
-        _label(col_d, "Unidad Académica").pack(anchor="w")
-        self.unidad_academica = _entry(col_d)
-        self.unidad_academica.insert(0, registro.unidad_academica or "")
-        self.unidad_academica.pack(fill="x", pady=5)
-
-        row3 = ctk.CTkFrame(s1, fg_color="transparent")
-        row3.pack(fill="x", pady=(6, 0))
-        col_e = ctk.CTkFrame(row3, fg_color="transparent")
-        col_e.pack(side="left", fill="x", expand=True, padx=(0, 8))
-        _label(col_e, "Semestre").pack(anchor="w")
-        self.semestre = _entry(col_e)
-        self.semestre.insert(0, str(registro.semestre or ""))
-        self.semestre.pack(fill="x", pady=5)
-
-        col_f = ctk.CTkFrame(row3, fg_color="transparent")
-        col_f.pack(side="left", fill="x", expand=True, padx=(8, 0))
-        _label(col_f, "Carrera").pack(anchor="w")
-        self.carrera = _entry(col_f)
-        self.carrera.insert(0, registro.carrera or "")
-        self.carrera.pack(fill="x", pady=5)
-
-        row4 = ctk.CTkFrame(s1, fg_color="transparent")
-        row4.pack(fill="x", pady=(6, 0))
-        col_g = ctk.CTkFrame(row4, fg_color="transparent")
-        col_g.pack(side="left", fill="x", expand=True, padx=(0, 8))
-        _label(col_g, "Hora Entrada").pack(anchor="w")
-        self.hora_entrada = _entry(col_g, "HH:MM")
-        self.hora_entrada.insert(0, str(registro.hora_entrada or ""))
-        self.hora_entrada.pack(fill="x", pady=5)
-
-        col_h = ctk.CTkFrame(row4, fg_color="transparent")
-        col_h.pack(side="left", fill="x", expand=True, padx=(8, 0))
-        _label(col_h, "Hora Salida").pack(anchor="w")
-        self.hora_salida = _entry(col_h, "HH:MM")
-        self.hora_salida.insert(0, str(registro.hora_salida or ""))
-        self.hora_salida.pack(fill="x", pady=5)
-
-        row5 = ctk.CTkFrame(s1, fg_color="transparent")
-        row5.pack(fill="x", pady=(6, 0))
-        col_i = ctk.CTkFrame(row5, fg_color="transparent")
-        col_i.pack(side="left", fill="x", expand=True, padx=(0, 8))
-        _label(col_i, "Institución").pack(anchor="w")
-        self.institucion = _entry(col_i)
-        self.institucion.insert(0, registro.institucion or "")
-        self.institucion.pack(fill="x", pady=5)
-
-        col_j = ctk.CTkFrame(row5, fg_color="transparent")
-        col_j.pack(side="left", fill="x", expand=True, padx=(8, 0))
-        _label(col_j, "Ciudad").pack(anchor="w")
-        self.ciudad = _entry(col_j)
-        self.ciudad.insert(0, registro.ciudad or "")
-        self.ciudad.pack(fill="x", pady=5)
-
-        row6 = ctk.CTkFrame(s1, fg_color="transparent")
-        row6.pack(fill="x", pady=(6, 0))
-        col_k = ctk.CTkFrame(row6, fg_color="transparent")
-        col_k.pack(side="left", fill="x", expand=True, padx=(0, 8))
-        _label(col_k, "Docente Responsable").pack(anchor="w")
-        self.docente_responsable = _entry(col_k)
-        self.docente_responsable.insert(0, registro.docente_responsable or "")
-        self.docente_responsable.pack(fill="x", pady=5)
-
-        col_l = ctk.CTkFrame(row6, fg_color="transparent")
-        col_l.pack(side="left", fill="x", expand=True, padx=(8, 0))
-        _label(col_l, "Fecha Práctica").pack(anchor="w")
-        self.fecha_practica = _entry(col_l, "DD/MM/AAAA")
-        self.fecha_practica.insert(0, str(registro.fecha_practica or ""))
-        self.fecha_practica.pack(fill="x", pady=5)
-
-        # ══ SECCIÓN 2 — DATOS ACADÉMICOS ═════════════════════════════
-        s2 = _section_card(scroll, "2.  DATOS ACADÉMICOS")
-
-        _label(s2, "Tema de la Práctica").pack(anchor="w")
-        self.tema = _textbox(s2, height=90)
-        self.tema.pack(fill="x", pady=5)
-        self.tema.insert("1.0", registro.tema_practica or "")
-
-        _label(s2, "Subtema").pack(anchor="w", pady=(8, 0))
-        self.subtema = _entry(s2)
-        self.subtema.insert(0, registro.subtema or "")
-        self.subtema.pack(fill="x", pady=5)
-
-        _label(s2, "Logro de Aprendizaje").pack(anchor="w", pady=(8, 0))
-        self.logro_aprendizaje = _textbox(s2, height=90)
-        self.logro_aprendizaje.pack(fill="x", pady=5)
-        self.logro_aprendizaje.insert("1.0", registro.logro_aprendizaje or "")
-
-        # ══ SECCIÓN 3 — PLANIFICACIÓN ════════════════════════════════
-        s3 = _section_card(scroll, "3.  PLANIFICACIÓN")
-
-        _label(s3, "Objetivos").pack(anchor="w")
-        self.objetivos = _textbox(s3, height=100)
-        self.objetivos.pack(fill="x", pady=5)
-        self.objetivos.insert("1.0", registro.objetivos or "")
-
-        _label(s3, "Metodología").pack(anchor="w", pady=(8, 0))
-        self.metodologia = _textbox(s3, height=100)
-        self.metodologia.pack(fill="x", pady=5)
-        self.metodologia.insert("1.0", registro.metodologia or "")
-
-        _label(s3, "Resultados").pack(anchor="w", pady=(8, 0))
-        self.resultados = _textbox(s3, height=100)
-        self.resultados.pack(fill="x", pady=5)
-        self.resultados.insert("1.0", registro.resultados or "")
-
-        _label(s3, "Conclusiones").pack(anchor="w", pady=(8, 0))
-        self.conclusiones = _textbox(s3, height=100)
-        self.conclusiones.pack(fill="x", pady=5)
-        self.conclusiones.insert("1.0", registro.conclusiones or "")
-
-        _label(s3, "Observaciones").pack(anchor="w", pady=(8, 0))
-        self.observaciones = _textbox(s3, height=90)
-        self.observaciones.pack(fill="x", pady=5)
-        self.observaciones.insert("1.0", registro.observaciones or "")
-
-        # ══ SECCIÓN 4 — MATERIALES ═══════════════════════════════════
-        s4 = _section_card(scroll, "4.  MATERIALES")
-        self._cont_materiales = ctk.CTkFrame(s4, fg_color="transparent")
-        self._cont_materiales.pack(fill="x")
-        for m in (registro.materiales or []):
-            self._agregar_fila_material(m.get("nombre", ""), m.get("cantidad", ""))
-        ctk.CTkButton(
-            s4, text="+  Agregar material",
-            fg_color=BG_CARD, hover_color="#243348", text_color=ACCENT,
-            font=("Consolas", 11, "bold"), corner_radius=6, height=32,
-            border_width=1, border_color=ACCENT,
-            command=lambda: self._agregar_fila_material(),
-        ).pack(anchor="w", pady=(8, 0))
-
-        # ══ SECCIÓN 5 — REACTIVOS ═════════════════════════════════════
-        # NOTA: laboratorio_reactivos solo tiene columnas (nombre, cantidad),
-        # sin 'unidad', según database/laboratorio/buscar_laboratorio.py
-        s5 = _section_card(scroll, "5.  REACTIVOS")
-        self._cont_reactivos = ctk.CTkFrame(s5, fg_color="transparent")
-        self._cont_reactivos.pack(fill="x")
-        for r in (registro.reactivos or []):
-            self._agregar_fila_reactivo(r.get("nombre", ""), r.get("cantidad", ""))
-        ctk.CTkButton(
-            s5, text="+  Agregar reactivo",
-            fg_color=BG_CARD, hover_color="#243348", text_color=ACCENT,
-            font=("Consolas", 11, "bold"), corner_radius=6, height=32,
-            border_width=1, border_color=ACCENT,
-            command=lambda: self._agregar_fila_reactivo(),
-        ).pack(anchor="w", pady=(8, 0))
-
-        # ══ SECCIÓN 6 — ESTUDIANTES ═══════════════════════════════════
-        # NOTA: laboratorio_estudiantes usa 'cedula', no 'codigo'.
-        s6 = _section_card(scroll, "6.  ESTUDIANTES")
-        self._cont_estudiantes = ctk.CTkFrame(s6, fg_color="transparent")
-        self._cont_estudiantes.pack(fill="x")
-        for e in (registro.estudiantes or []):
-            self._agregar_fila_estudiante(e.get("nombre", ""), e.get("cedula", ""))
-        ctk.CTkButton(
-            s6, text="+  Agregar estudiante",
-            fg_color=BG_CARD, hover_color="#243348", text_color=ACCENT,
-            font=("Consolas", 11, "bold"), corner_radius=6, height=32,
-            border_width=1, border_color=ACCENT,
-            command=lambda: self._agregar_fila_estudiante(),
-        ).pack(anchor="w", pady=(8, 0))
-
-        # ══ BOTÓN ACTUALIZAR ═════════════════════════════════════════
-        ctk.CTkButton(
-            scroll,
-            text="⬤  ACTUALIZAR LABORATORIO",
-            command=self.actualizar,
-            fg_color=ACCENT, hover_color=ACCENT_DARK,
-            text_color="#0F1923", font=("Consolas", 14, "bold"),
-            corner_radius=8, height=48,
-        ).pack(pady=24, fill="x")
-
-    # ─── Filas dinámicas: materiales / reactivos / estudiantes ───────
-
-    def _fila_generica(self, contenedor, campos_placeholders, lista_filas, valores):
-        """
-        Crea una fila con N entries + botón de eliminar, y la registra en
-        `lista_filas` como dict {"frame": ..., "entries": [entry, entry, ...]}.
-        `valores` es una tupla con el valor inicial de cada entry (o "").
-        """
-        fila = ctk.CTkFrame(contenedor, fg_color=BG_DARK, corner_radius=6)
-        fila.pack(fill="x", pady=3)
-
-        entries = []
-        for i, placeholder in enumerate(campos_placeholders):
-            e = ctk.CTkEntry(
-                fila, placeholder_text=placeholder,
-                fg_color=BG_DARK, border_color=BORDER, border_width=1,
-                text_color=TEXT_PRI, placeholder_text_color=TEXT_SEC,
-                font=("Consolas", 12), corner_radius=6, height=34,
+    def __init__(
+        self,
+        master,
+        laboratorio,
+    ):
+        if laboratorio is None:
+            raise ValueError(
+                "No se recibió un laboratorio válido."
             )
-            valor = valores[i] if i < len(valores) else ""
-            if valor not in (None, ""):
-                e.insert(0, str(valor))
-            e.pack(side="left", fill="x", expand=True, padx=(6, 4), pady=6)
-            entries.append(e)
 
-        registro_fila = {"frame": fila, "entries": entries}
+        if not getattr(
+            laboratorio,
+            "id",
+            None,
+        ):
+            raise ValueError(
+                "El laboratorio no tiene un ID válido."
+            )
 
-        def _quitar():
-            fila.destroy()
-            lista_filas.remove(registro_fila)
+        self.registro_original = laboratorio
 
-        ctk.CTkButton(
-            fila, text="✕", width=32, height=34,
-            fg_color=RED, hover_color=RED_DARK, text_color=TEXT_PRI,
-            font=("Consolas", 12, "bold"), corner_radius=6,
-            command=_quitar,
-        ).pack(side="left", padx=(0, 6), pady=6)
+        # ============================================================
+        # Guardar temporalmente las firmas existentes
+        # ============================================================
 
-        lista_filas.append(registro_fila)
-        return registro_fila
-
-    def _agregar_fila_material(self, nombre="", cantidad=""):
-        self._fila_generica(
-            self._cont_materiales,
-            ["Nombre del material", "Cantidad"],
-            self._filas_materiales,
-            (nombre, cantidad),
+        firma_docente_bytes = self._leer_firma_existente(
+            getattr(
+                laboratorio,
+                "firma_docente_ruta",
+                None,
+            )
         )
 
-    def _agregar_fila_reactivo(self, nombre="", cantidad=""):
-        self._fila_generica(
-            self._cont_reactivos,
-            ["Nombre del reactivo", "Cantidad"],
-            self._filas_reactivos,
-            (nombre, cantidad),
+        firma_encargado_bytes = self._leer_firma_existente(
+            getattr(
+                laboratorio,
+                "firma_encargado_ruta",
+                None,
+            )
         )
 
-    def _agregar_fila_estudiante(self, nombre="", cedula=""):
-        self._fila_generica(
-            self._cont_estudiantes,
-            ["Nombre del estudiante", "Cédula"],
-            self._filas_estudiantes,
-            (nombre, cedula),
+        # El constructor padre crea toda la interfaz.
+        super().__init__(
+            master
         )
 
-    def _leer_filas(self, lista_filas, claves):
-        """Convierte las filas de entries en una lista de dicts, ignorando filas vacías."""
-        resultado = []
-        for f in lista_filas:
-            valores = [e.get().strip() for e in f["entries"]]
-            if not any(valores):
-                continue
-            resultado.append({clave: val for clave, val in zip(claves, valores)})
-        return resultado
+        self.title(
+            "Editar registro de laboratorio"
+        )
 
-    # ─── Guardar cambios ─────────────────────────────────────────────
+        # Restaurar código de sesión existente.
+        self._codigo_sesion = (
+            getattr(
+                laboratorio,
+                "codigo_sesion",
+                None,
+            )
+            or self._codigo_sesion
+        )
 
-    def actualizar(self):
+        # Restaurar las firmas que el constructor padre limpia.
+        self._restaurar_firma(
+            RUTA_FIRMA_DOCENTE_LAB,
+            firma_docente_bytes,
+        )
+
+        self._restaurar_firma(
+            RUTA_FIRMA_ENCARGADO_LAB,
+            firma_encargado_bytes,
+        )
+
+        # Cargar todos los datos.
+        self._cargar_registro(
+            laboratorio
+        )
+
+        # Cambiar el texto del botón principal.
+        self._cambiar_texto_boton_guardar()
+
+        # Mostrar firmas existentes.
+        self.after(
+            300,
+            self._mostrar_firmas_existentes,
+        )
+
+    # ================================================================
+    # Firmas existentes
+    # ================================================================
+
+    @staticmethod
+    def _leer_firma_existente(
+        ruta,
+    ):
+        """
+        Lee una firma antes de que el constructor padre elimine
+        los archivos temporales compartidos.
+
+        Devuelve bytes o None.
+        """
+
+        if not ruta:
+            return None
+
+        ruta = str(
+            ruta
+        ).strip()
+
+        if not os.path.isfile(
+            ruta
+        ):
+            return None
+
         try:
-            laboratorio         = self.laboratorio.get().strip()
-            numero_estudiantes  = int(self.numero_estudiantes.get().strip())
-            asignatura          = self.asignatura.get().strip()
-            unidad_academica    = self.unidad_academica.get().strip()
-            semestre            = int(self.semestre.get().strip())
-            carrera              = self.carrera.get().strip()
-            hora_entrada         = self.hora_entrada.get().strip()
-            hora_salida           = self.hora_salida.get().strip()
-            institucion           = self.institucion.get().strip()
-            ciudad                = self.ciudad.get().strip()
-            docente_responsable   = self.docente_responsable.get().strip()
-            fecha_practica         = self.fecha_practica.get().strip()
-            tema_practica          = self.tema.get("1.0", "end").strip()
-            subtema                = self.subtema.get().strip()
-            logro_aprendizaje      = self.logro_aprendizaje.get("1.0", "end").strip()
-            objetivos              = self.objetivos.get("1.0", "end").strip()
-            metodologia            = self.metodologia.get("1.0", "end").strip()
-            resultados             = self.resultados.get("1.0", "end").strip()
-            conclusiones           = self.conclusiones.get("1.0", "end").strip()
-            observaciones          = self.observaciones.get("1.0", "end").strip()
-        except ValueError:
-            messagebox.showerror("Error", "Semestre y N° de Estudiantes deben ser números.")
+            with open(
+                ruta,
+                "rb",
+            ) as archivo:
+                return archivo.read()
+
+        except Exception as error:
+            print(
+                "No se pudo leer una firma existente:",
+                error,
+            )
+            return None
+
+    @staticmethod
+    def _restaurar_firma(
+        ruta,
+        contenido,
+    ):
+        """
+        Vuelve a escribir una firma conservada en memoria.
+        """
+
+        if not contenido:
             return
 
-        materiales  = self._leer_filas(self._filas_materiales, ("nombre", "cantidad"))
-        reactivos   = self._leer_filas(self._filas_reactivos, ("nombre", "cantidad"))
-        estudiantes = self._leer_filas(self._filas_estudiantes, ("nombre", "cedula"))
+        try:
+            carpeta = os.path.dirname(
+                ruta
+            )
 
-        lab = Laboratorio(
-            codigo=self.codigo,
-            laboratorio=laboratorio,
-            numero_estudiantes=numero_estudiantes,
-            asignatura=asignatura,
-            unidad_academica=unidad_academica,
-            semestre=semestre,
-            carrera=carrera,
-            hora_entrada=hora_entrada,
-            hora_salida=hora_salida,
-            institucion=institucion,
-            ciudad=ciudad,
-            docente_responsable=docente_responsable,
-            fecha_practica=fecha_practica,
-            tema_practica=tema_practica,
-            subtema=subtema,
-            logro_aprendizaje=logro_aprendizaje,
-            objetivos=objetivos,
-            metodologia=metodologia,
-            resultados=resultados,
-            conclusiones=conclusiones,
-            observaciones=observaciones,
-            materiales=materiales,
-            reactivos=reactivos,
-            estudiantes=estudiantes,
-            id=self.id_lab,
-            pdf_url=self.pdf_url,
-        )
+            if carpeta:
+                os.makedirs(
+                    carpeta,
+                    exist_ok=True,
+                )
 
-        exito = actualizar_laboratorio(lab)
+            with open(
+                ruta,
+                "wb",
+            ) as archivo:
+                archivo.write(
+                    contenido
+                )
 
-        if not exito:
-            messagebox.showerror("Error", "No fue posible actualizar el laboratorio.")
+        except Exception as error:
+            print(
+                "No se pudo restaurar una firma:",
+                error,
+            )
+
+    def _mostrar_firmas_existentes(self):
+        """
+        Inicia el indicador visual de firmas sin necesidad
+        de generar inmediatamente los códigos QR.
+        """
+
+        if not self.winfo_exists():
             return
 
-        # ── Regenerar el PDF físico con los datos editados ─────────────
-        # NOTA: ajusta este bloque según cómo generes el PDF de laboratorio
-        # (por ejemplo pdf.generador_pdf.generar_pdf_laboratorio). Si aún
-        # no existe esa función, puedes comentar este bloque por ahora.
+        if os.path.isfile(
+            RUTA_FIRMA_DOCENTE_LAB
+        ):
+            self._lbl_estado_docente_lab.configure(
+                text="✔  Firma existente",
+                text_color="#4CAF7D",
+            )
+
+            self._mostrar_preview_firma(
+                RUTA_FIRMA_DOCENTE_LAB,
+                self._lbl_preview_docente_lab,
+                "preview_docente_laboratorio",
+            )
+
+        if os.path.isfile(
+            RUTA_FIRMA_ENCARGADO_LAB
+        ):
+            self._lbl_estado_encargado_lab.configure(
+                text="✔  Firma existente",
+                text_color="#4CAF7D",
+            )
+
+            self._mostrar_preview_firma(
+                RUTA_FIRMA_ENCARGADO_LAB,
+                self._lbl_preview_encargado_lab,
+                "preview_encargado_laboratorio",
+            )
+
+    # ================================================================
+    # Carga del registro
+    # ================================================================
+
+    def _cargar_registro(
+        self,
+        laboratorio,
+    ):
+        """
+        Coloca en el formulario todos los datos del objeto recibido.
+        """
+
+        # Datos generales
+        self._set_combo(
+            self.laboratorio,
+            laboratorio.laboratorio,
+        )
+
+        self._actualizar_datos_laboratorio(
+            laboratorio.laboratorio
+        )
+
+        # Conservar el responsable almacenado en el registro, incluso
+        # si posteriormente cambió en laboratorios_tipo.
+        if getattr(
+            laboratorio,
+            "encargado_laboratorio",
+            None,
+        ):
+            self._encargado_actual = str(
+                laboratorio.encargado_laboratorio
+            ).strip()
+
+            self._lbl_encargado.configure(
+                text=self._encargado_actual
+            )
+
+            self._lbl_nombre_encargado_firma.configure(
+                text=self._encargado_actual
+            )
+
+        if getattr(
+            laboratorio,
+            "cargo_encargado",
+            None,
+        ):
+            self._cargo_encargado_actual = str(
+                laboratorio.cargo_encargado
+            ).strip()
+
+            self._lbl_cargo_encargado.configure(
+                text=self._cargo_encargado_actual
+            )
+
+            self._lbl_cargo_encargado_firma.configure(
+                text=self._cargo_encargado_actual
+            )
+
+        self._set_entry(
+            self.numero_estudiantes,
+            laboratorio.numero_estudiantes,
+        )
+
+        self._set_entry(
+            self.asignatura,
+            laboratorio.asignatura,
+        )
+
+        self._set_entry(
+            self.unidad_academica,
+            laboratorio.unidad_academica,
+        )
+
+        self._set_entry(
+            self.semestre,
+            laboratorio.semestre,
+        )
+
+        self._set_entry(
+            self.carrera,
+            laboratorio.carrera,
+        )
+
+        self._set_entry(
+            self.hora_entrada,
+            laboratorio.hora_entrada,
+        )
+
+        self._set_entry(
+            self.hora_salida,
+            laboratorio.hora_salida,
+        )
+
+        self._set_entry(
+            self.institucion,
+            laboratorio.institucion,
+        )
+
+        self._set_entry(
+            self.ciudad,
+            laboratorio.ciudad,
+        )
+
+        self._set_entry(
+            self.docente,
+            laboratorio.docente_responsable,
+        )
+
+        self._actualizar_nombre_docente_firma()
+
+        # Datos académicos
+        self._set_textbox(
+            self.tema,
+            laboratorio.tema_practica,
+        )
+
+        self._set_textbox(
+            self.subtema,
+            laboratorio.subtema,
+        )
+
+        self._set_textbox(
+            self.logro,
+            laboratorio.logro_aprendizaje,
+        )
+
+        # Planificación
+        self._set_textbox(
+            self.objetivos,
+            laboratorio.objetivos,
+        )
+
+        self._set_textbox(
+            self.metodologia,
+            laboratorio.metodologia,
+        )
+
+        self._set_textbox(
+            self.resultados,
+            laboratorio.resultados,
+        )
+
+        self._set_textbox(
+            self.conclusiones,
+            laboratorio.conclusiones,
+        )
+
+        self._set_textbox(
+            self.observaciones,
+            laboratorio.observaciones,
+        )
+
+        # Materiales
+        self.widget_materiales._items = [
+            {
+                "nombre": material.get(
+                    "nombre"
+                ),
+                "cantidad": material.get(
+                    "cantidad"
+                ),
+            }
+            for material in (
+                laboratorio.materiales
+                or []
+            )
+            if isinstance(
+                material,
+                dict,
+            )
+        ]
+
+        self.widget_materiales._refrescar()
+
+        # Reactivos
+        self.widget_reactivos._items = [
+            {
+                "nombre": reactivo.get(
+                    "nombre"
+                ),
+                "cantidad": reactivo.get(
+                    "cantidad"
+                ),
+            }
+            for reactivo in (
+                laboratorio.reactivos
+                or []
+            )
+            if isinstance(
+                reactivo,
+                dict,
+            )
+        ]
+
+        self.widget_reactivos._refrescar()
+
+        # Estudiantes guardados anteriormente
+        self._estudiantes_firmados = [
+            {
+                "nombre": estudiante.get(
+                    "nombre"
+                ),
+                "cedula": estudiante.get(
+                    "cedula"
+                ),
+                "firma_ruta": estudiante.get(
+                    "firma_ruta"
+                ),
+                "hora": estudiante.get(
+                    "hora"
+                ),
+            }
+            for estudiante in (
+                laboratorio.estudiantes
+                or []
+            )
+            if isinstance(
+                estudiante,
+                dict,
+            )
+        ]
+
+        self._mostrar_estudiantes_cargados()
+
+    @staticmethod
+    def _set_entry(
+        widget,
+        valor,
+    ):
+        widget.delete(
+            0,
+            "end",
+        )
+
+        widget.insert(
+            0,
+            str(
+                valor
+                if valor is not None
+                else ""
+            ),
+        )
+
+    @staticmethod
+    def _set_combo(
+        widget,
+        valor,
+    ):
+        widget.set(
+            str(
+                valor
+                if valor is not None
+                else ""
+            )
+        )
+
+    @staticmethod
+    def _set_textbox(
+        widget,
+        valor,
+    ):
+        widget.delete(
+            "1.0",
+            "end",
+        )
+
+        widget.insert(
+            "1.0",
+            str(
+                valor
+                if valor is not None
+                else ""
+            ),
+        )
+
+    def _mostrar_estudiantes_cargados(self):
+        """
+        Muestra los estudiantes recuperados de PostgreSQL.
+        """
+
+        total = len(
+            self._estudiantes_firmados
+        )
+
+        limite = self._limite_estudiantes()
+
+        if limite:
+            self._lbl_contador.configure(
+                text=(
+                    f"{total} / {limite} "
+                    "estudiantes registrados"
+                )
+            )
+
+            self._barra_progreso.set(
+                min(
+                    total / limite,
+                    1.0,
+                )
+            )
+
+        else:
+            self._lbl_contador.configure(
+                text=(
+                    f"{total} estudiantes registrados"
+                )
+            )
+
+            self._barra_progreso.set(
+                0
+            )
+
+        self._lista_estudiantes.configure(
+            state="normal"
+        )
+
+        self._lista_estudiantes.delete(
+            "1.0",
+            "end",
+        )
+
+        if total == 0:
+            self._lista_estudiantes.insert(
+                "1.0",
+                "No hay estudiantes registrados.",
+            )
+
+        else:
+            texto = "\n".join(
+                (
+                    f"{indice + 1}. "
+                    f"{estudiante.get('nombre') or '—'}"
+                    f" — {estudiante.get('cedula') or 'Sin cédula'}"
+                )
+                for indice, estudiante in enumerate(
+                    self._estudiantes_firmados
+                )
+            )
+
+            self._lista_estudiantes.insert(
+                "1.0",
+                texto,
+            )
+
+        self._lista_estudiantes.configure(
+            state="disabled"
+        )
+
+    def _cambiar_texto_boton_guardar(self):
+        """
+        Busca el botón principal creado por la clase padre y cambia
+        su texto para indicar que se está editando.
+        """
+
         try:
-            if self.pdf_url:
-                from pdf.generador_pdf import generar_pdf_laboratorio
-                generar_pdf_laboratorio(lab, self.pdf_url)
-        except ImportError:
+            for widget in self.scroll.winfo_children():
+                if not hasattr(
+                    widget,
+                    "cget",
+                ):
+                    continue
+
+                try:
+                    texto = widget.cget(
+                        "text"
+                    )
+                except Exception:
+                    continue
+
+                if texto == "⬤  GUARDAR REGISTRO":
+                    widget.configure(
+                        text="⬤  ACTUALIZAR REGISTRO"
+                    )
+                    break
+
+        except Exception:
             pass
-        except Exception as e:
-            messagebox.showwarning(
-                "Advertencia",
-                f"El laboratorio se actualizó en la base de datos,\n"
-                f"pero no fue posible regenerar el PDF:\n\n{e}"
-            )
-            self.destroy()
-            return
 
-        messagebox.showinfo(
-            "Correcto",
-            "Laboratorio actualizado correctamente."
-        )
-        self.destroy()
+    # ================================================================
+    # Guardar actualización
+    # ================================================================
+
+    def guardar(self):
+        """
+        Regenera el PDF, lo sube a Supabase y actualiza PostgreSQL.
+        """
+
+        try:
+            # ========================================================
+            # Validaciones numéricas y horarias
+            # ========================================================
+
+            try:
+                numero_estudiantes = int(
+                    self.numero_estudiantes.get().strip()
+                )
+
+                semestre = int(
+                    self.semestre.get().strip()
+                )
+
+                hora_entrada_normalizada = _normalizar_hora(
+                    self.hora_entrada.get()
+                )
+
+                hora_salida_normalizada = _normalizar_hora(
+                    self.hora_salida.get()
+                )
+
+            except ValueError as error:
+                messagebox.showerror(
+                    "Datos inválidos",
+                    (
+                        "Revise el semestre, el número de estudiantes "
+                        "y los horarios.\n\n"
+                        f"{error}"
+                    ),
+                    parent=self,
+                )
+                return
+
+            if numero_estudiantes <= 0:
+                messagebox.showerror(
+                    "Número inválido",
+                    (
+                        "El número de estudiantes debe ser "
+                        "mayor que cero."
+                    ),
+                    parent=self,
+                )
+                return
+
+            if semestre <= 0:
+                messagebox.showerror(
+                    "Semestre inválido",
+                    "El semestre debe ser mayor que cero.",
+                    parent=self,
+                )
+                return
+
+            if (
+                hora_entrada_normalizada
+                >= hora_salida_normalizada
+            ):
+                messagebox.showerror(
+                    "Horario inválido",
+                    (
+                        "La hora de salida debe ser posterior "
+                        "a la hora de entrada."
+                    ),
+                    parent=self,
+                )
+                return
+
+            nombre_laboratorio = (
+                self.laboratorio.get().strip()
+            )
+
+            nombre_docente = (
+                self.docente.get().strip()
+            )
+
+            if not nombre_laboratorio:
+                messagebox.showerror(
+                    "Laboratorio requerido",
+                    "Debe seleccionar un laboratorio.",
+                    parent=self,
+                )
+                return
+
+            if not self.asignatura.get().strip():
+                messagebox.showerror(
+                    "Asignatura requerida",
+                    "Debe ingresar la asignatura.",
+                    parent=self,
+                )
+                return
+
+            if not nombre_docente:
+                messagebox.showerror(
+                    "Docente requerido",
+                    (
+                        "Debe ingresar el nombre del docente "
+                        "responsable."
+                    ),
+                    parent=self,
+                )
+                return
+
+            if not self._encargado_actual:
+                messagebox.showerror(
+                    "Encargado requerido",
+                    (
+                        "El laboratorio seleccionado no tiene "
+                        "un encargado configurado."
+                    ),
+                    parent=self,
+                )
+                return
+
+            if not self._cargo_encargado_actual:
+                messagebox.showerror(
+                    "Cargo requerido",
+                    (
+                        "El encargado del laboratorio no tiene "
+                        "un cargo configurado."
+                    ),
+                    parent=self,
+                )
+                return
+
+            # ========================================================
+            # Materiales y reactivos
+            # ========================================================
+
+            materiales = (
+                self.widget_materiales.obtener_items()
+            )
+
+            reactivos = (
+                self.widget_reactivos.obtener_items()
+            )
+
+            # ========================================================
+            # Estudiantes
+            # ========================================================
+
+            estudiantes = [
+                {
+                    "nombre": estudiante.get(
+                        "nombre"
+                    ),
+                    "cedula": estudiante.get(
+                        "cedula"
+                    ),
+                    "firma_ruta": estudiante.get(
+                        "firma_ruta"
+                    ),
+                }
+                for estudiante in self._estudiantes_firmados
+            ]
+
+            # Agregar líneas manuales nuevas.
+            for linea in self.estudiantes.get(
+                "1.0",
+                "end",
+            ).splitlines():
+                linea = linea.strip()
+
+                if not linea:
+                    continue
+
+                estudiantes.append(
+                    {
+                        "nombre": linea,
+                        "cedula": None,
+                        "firma_ruta": None,
+                    }
+                )
+
+            # ========================================================
+            # Firmas responsables
+            # ========================================================
+
+            firma_docente = (
+                RUTA_FIRMA_DOCENTE_LAB
+                if os.path.isfile(
+                    RUTA_FIRMA_DOCENTE_LAB
+                )
+                else getattr(
+                    self.registro_original,
+                    "firma_docente_ruta",
+                    None,
+                )
+            )
+
+            firma_encargado = (
+                RUTA_FIRMA_ENCARGADO_LAB
+                if os.path.isfile(
+                    RUTA_FIRMA_ENCARGADO_LAB
+                )
+                else getattr(
+                    self.registro_original,
+                    "firma_encargado_ruta",
+                    None,
+                )
+            )
+
+            # ========================================================
+            # Reconstruir el objeto
+            # ========================================================
+
+            fecha_practica = (
+                getattr(
+                    self.registro_original,
+                    "fecha_practica",
+                    None,
+                )
+                or datetime.now().strftime(
+                    "%Y-%m-%d"
+                )
+            )
+
+            laboratorio_actualizado = Laboratorio(
+                codigo=self.registro_original.codigo,
+                laboratorio=nombre_laboratorio,
+                numero_estudiantes=numero_estudiantes,
+                asignatura=self.asignatura.get().strip(),
+                unidad_academica=(
+                    self.unidad_academica.get().strip()
+                ),
+                semestre=semestre,
+                carrera=self.carrera.get().strip(),
+                hora_entrada=hora_entrada_normalizada,
+                hora_salida=hora_salida_normalizada,
+                institucion=self.institucion.get().strip(),
+                ciudad=self.ciudad.get().strip(),
+                docente_responsable=nombre_docente,
+                fecha_practica=fecha_practica,
+                tema_practica=self.tema.get(
+                    "1.0",
+                    "end",
+                ).strip(),
+                subtema=self.subtema.get(
+                    "1.0",
+                    "end",
+                ).strip(),
+                logro_aprendizaje=self.logro.get(
+                    "1.0",
+                    "end",
+                ).strip(),
+                objetivos=self.objetivos.get(
+                    "1.0",
+                    "end",
+                ).strip(),
+                metodologia=self.metodologia.get(
+                    "1.0",
+                    "end",
+                ).strip(),
+                resultados=self.resultados.get(
+                    "1.0",
+                    "end",
+                ).strip(),
+                conclusiones=self.conclusiones.get(
+                    "1.0",
+                    "end",
+                ).strip(),
+                observaciones=self.observaciones.get(
+                    "1.0",
+                    "end",
+                ).strip(),
+                pdf_url=self.registro_original.pdf_url,
+                materiales=materiales,
+                reactivos=reactivos,
+                estudiantes=estudiantes,
+                encargado_laboratorio=(
+                    self._encargado_actual
+                ),
+                cargo_encargado=(
+                    self._cargo_encargado_actual
+                ),
+                firma_encargado_ruta=firma_encargado,
+                firma_docente_ruta=firma_docente,
+                codigo_sesion=self._codigo_sesion,
+                id=self.registro_original.id,
+            )
+
+            # ========================================================
+            # Generar nuevo PDF
+            # ========================================================
+
+            ruta_pdf = generar_pdf_laboratorio(
+                laboratorio_actualizado
+            )
+
+            # ========================================================
+            # Subir nuevo PDF a Supabase
+            # ========================================================
+
+            nueva_url_pdf = subir_pdf_laboratorio(
+                ruta_pdf
+            )
+
+            laboratorio_actualizado.pdf_url = (
+                nueva_url_pdf
+            )
+
+            # ========================================================
+            # Actualizar base de datos
+            # ========================================================
+
+            resultado = actualizar_laboratorio(
+                laboratorio_actualizado
+            )
+
+            if not resultado:
+                raise RuntimeError(
+                    "No fue posible actualizar el registro "
+                    "en PostgreSQL."
+                )
+
+            messagebox.showinfo(
+                "Correcto",
+                (
+                    "Laboratorio actualizado correctamente.\n\n"
+                    "El PDF actualizado fue generado y subido "
+                    "a Supabase."
+                ),
+                parent=self,
+            )
+
+            self.destroy()
+
+        except Exception as error:
+            print(
+                "\n========== ERROR EDITANDO LABORATORIO =========="
+            )
+            print(error)
+            print(
+                "================================================\n"
+            )
+
+            messagebox.showerror(
+                "Error",
+                (
+                    "No fue posible actualizar el laboratorio.\n\n"
+                    f"{error}"
+                ),
+                parent=self,
+            )

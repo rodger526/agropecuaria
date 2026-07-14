@@ -4,15 +4,16 @@ import os
 import threading
 import time
 import socket
-
 from PIL import Image
 from customtkinter import CTkImage
 import qrcode
 
+from models import practica
 from models.practica import Practica
 from database.guardar import guardar_practica
 from pdf.generador_pdf import generar_pdf
 from firma.servidor_firma import app as flask_app
+from storage.subir_pdf import subir_pdf
 
 # ─── Paleta ──────────────────────────────────────────────────────────
 BG_DARK     = "#0F1923"
@@ -462,18 +463,14 @@ class VentanaNuevaPractica(ctk.CTkToplevel):
         ruta_pdf = f"pdfs_planificacion/{nombre_pdf}.pdf"
 
         generar_pdf(practica, ruta_pdf)
-        practica.pdf_url = ruta_pdf
+
+        url_pdf = subir_pdf(ruta_pdf)
+
+        practica.pdf_url = url_pdf
 
         resultado = guardar_practica(practica)
 
         if resultado:
-            messagebox.showinfo(
-                "Correcto",
-                f"Práctica guardada correctamente.\n\nPDF generado:\n{ruta_pdf}"
-            )
-            self.destroy()
+            messagebox.showinfo(...)
         else:
-            messagebox.showerror(
-                "Error",
-                "No fue posible guardar la práctica en la base de datos."
-            )
+            messagebox.showerror(...)

@@ -5,3 +5,5 @@ reportlab
 flask 
 qrcode 
 pillow
+psycopg2-binary
+python-dotenv

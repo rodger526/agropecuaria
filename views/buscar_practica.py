@@ -2,6 +2,7 @@ import customtkinter as ctk
 import os
 from tkinter import messagebox
 from datetime import datetime
+import webbrowser
 
 from database.buscar import listar_practicas, buscar_por_id
 from views.editar_practica import VentanaEditarPractica
@@ -459,16 +460,15 @@ class VentanaBuscar(ctk.CTkToplevel):
 
     # ─── Acciones ────────────────────────────────────────────────────
 
-    def abrir_pdf(self, ruta):
-        ruta_completa = os.path.abspath(ruta)
-        if not os.path.isfile(ruta_completa):
-            messagebox.showerror("Error", f"No se encontró el archivo:\n\n{ruta_completa}")
+    def abrir_pdf(self, url):
+        if not url:
+            messagebox.showerror("Error", "Este registro no tiene PDF.")
             return
+
         try:
-            os.startfile(ruta_completa)
+            webbrowser.open(url)
         except Exception as e:
             messagebox.showerror("Error", str(e))
-
     def editar(self, id_practica):
         registro = buscar_por_id(id_practica)
         if not registro:
@@ -477,11 +477,24 @@ class VentanaBuscar(ctk.CTkToplevel):
         VentanaEditarPractica(self, registro)
 
     def eliminar_y_recargar(self, id_practica):
-        if not messagebox.askyesno("Confirmar", "¿Desea eliminar esta práctica?"):
+        if not messagebox.askyesno(
+            "Confirmar",
+            "¿Desea eliminar esta práctica?"
+        ):
             return
-        try:
-            eliminar(id_practica)
-            messagebox.showinfo("Correcto", "Práctica eliminada correctamente.")
-            self.cargar_datos()
-        except Exception as e:
-            messagebox.showerror("Error", str(e))
+
+        exito = eliminar(id_practica)
+
+        if not exito:
+            messagebox.showerror(
+                "Error",
+                "No fue posible eliminar la práctica."
+            )
+            return
+
+        messagebox.showinfo(
+            "Correcto",
+            "Práctica eliminada correctamente."
+        )
+
+        self.cargar_datos()

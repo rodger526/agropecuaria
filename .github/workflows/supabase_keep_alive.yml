@@ -38,4 +38,4 @@ jobs:
           SUPABASE_PORT: ${{ secrets.SUPABASE_PORT }}
 
         run: |
-          python keep_alive.py
+          python keep_alive.py  
