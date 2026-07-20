@@ -6,7 +6,7 @@ import sys
 # Datos de GitHub
 # ============================================================
 
-USUARIO_GITHUB = "rodger123"
+USUARIO_GITHUB = "rodger526"
 REPOSITORIO_GITHUB = "agropecuaria"
 
 URL_API_ULTIMA_VERSION = (

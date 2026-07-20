@@ -173,7 +173,7 @@ class App(ctk.CTk):
         super().__init__()
 
         self.title(
-            "Sistema Integrado de Gestión de Prácticas Académicas"
+            "Sistema Integrado de Gestión de Prácticas Académicas ULEAM"
         )
 
         self.geometry(
