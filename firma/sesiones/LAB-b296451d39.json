@@ -1,0 +1,16 @@
+{
+  "estudiantes": [
+    {
+      "nombre": "Hades",
+      "cedula": "1243756785",
+      "firma_ruta": "firma/firmas/estudiantes\\LAB-b296451d39_1243756785_58b2fa.png",
+      "hora": "15:58:33"
+    },
+    {
+      "nombre": "Ares",
+      "cedula": "1478520963",
+      "firma_ruta": "firma/firmas/estudiantes\\LAB-b296451d39_1478520963_d2ba14.png",
+      "hora": "15:58:51"
+    }
+  ]
+}

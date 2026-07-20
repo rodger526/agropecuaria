@@ -1,0 +1,28 @@
+{
+  "estudiantes": [
+    {
+      "nombre": "Rodger",
+      "cedula": "1727330340",
+      "firma_ruta": "firma/firmas/estudiantes\\LAB-09ad37ac05_1727330340_575fad.png",
+      "hora": "15:51:19"
+    },
+    {
+      "nombre": "Mauricio",
+      "cedula": "6487375318",
+      "firma_ruta": "firma/firmas/estudiantes\\LAB-09ad37ac05_6487375318_39044e.png",
+      "hora": "15:51:35"
+    },
+    {
+      "nombre": "Yo",
+      "cedula": "1470852369",
+      "firma_ruta": "firma/firmas/estudiantes\\LAB-09ad37ac05_1470852369_da4533.png",
+      "hora": "15:57:45"
+    },
+    {
+      "nombre": "Rodger",
+      "cedula": "1727330340",
+      "firma_ruta": "firma/firmas/estudiantes\\LAB-09ad37ac05_1727330340_e293b0.png",
+      "hora": "15:57:55"
+    }
+  ]
+}

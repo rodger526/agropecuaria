@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta
+  name="viewport"
+  content="width=device-width, initial-scale=1.0"
+>
+<title>{{ titulo }}</title>
+
+<style>
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    font-family: Arial, sans-serif;
+    background: #0F1923;
+    color: #E8EDF2;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+    padding: 24px 16px;
+  }
+
+  h2 {
+    font-size: 1.2rem;
+    color: #4CAF7D;
+    margin-bottom: 6px;
+    text-align: center;
+  }
+
+  p.sub {
+    font-size: 0.82rem;
+    color: #8A9BB0;
+    margin-bottom: 10px;
+    text-align: center;
+  }
+
+  .sesion {
+    width: 100%;
+    max-width: 560px;
+    margin-bottom: 18px;
+    padding: 8px 10px;
+    border: 1px solid #2A3A50;
+    border-radius: 8px;
+    background: #162131;
+    color: #8A9BB0;
+    font-size: 0.76rem;
+    text-align: center;
+    word-break: break-word;
+  }
+
+  #firma-wrap {
+    border: 2px solid #2A3A50;
+    border-radius: 10px;
+    overflow: hidden;
+    background: #FFFFFF;
+    width: 100%;
+    max-width: 560px;
+  }
+
+  canvas {
+    display: block;
+    width: 100%;
+    height: 220px;
+    touch-action: none;
+    cursor: crosshair;
+  }
+
+  .btn-row {
+    display: flex;
+    gap: 10px;
+    margin-top: 16px;
+    width: 100%;
+    max-width: 560px;
+  }
+
+  button {
+    flex: 1;
+    padding: 14px;
+    font-size: 1rem;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: bold;
+    transition: opacity 0.15s;
+  }
+
+  button:active {
+    opacity: 0.75;
+  }
+
+  button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  #btn-limpiar {
+    background: #1E2D42;
+    color: #8A9BB0;
+    border: 1px solid #2A3A50;
+  }
+
+  #btn-guardar {
+    background: #4CAF7D;
+    color: #0F1923;
+  }
+
+  #estado {
+    margin-top: 20px;
+    font-size: 0.9rem;
+    color: #8A9BB0;
+    text-align: center;
+    min-height: 28px;
+    max-width: 560px;
+  }
+
+  #estado.ok {
+    color: #4CAF7D;
+    font-weight: bold;
+  }
+
+  #estado.err {
+    color: #E05252;
+  }
+
+  #estado.info {
+    color: #8A9BB0;
+  }
+</style>
+</head>
+
+<body>
+
+<h2>{{ titulo }}</h2>
+
+<p class="sub">
+  Dibuja tu firma en el recuadro y pulsa
+  <strong>Guardar</strong>
+</p>
+
+<div class="sesion">
+  Sesión:
+  <strong id="codigo-sesion"></strong>
+</div>
+
+<div id="firma-wrap">
+  <canvas id="canvas"></canvas>
+</div>
+
+<div class="btn-row">
+  <button
+    type="button"
+    id="btn-limpiar"
+  >
+    Limpiar
+  </button>
+
+  <button
+    type="button"
+    id="btn-guardar"
+  >
+    Guardar firma
+  </button>
+</div>
+
+<div
+  id="estado"
+  role="status"
+  aria-live="polite"
+>
+  Aún no firmado
+</div>
+
+<script>
+  const ROL = "{{ rol }}";
+  const CODIGO_SESION = "{{ codigo_sesion }}";
+
+  const canvas = document.getElementById("canvas");
+  const ctx = canvas.getContext("2d");
+
+  const btnLimpiar = document.getElementById("btn-limpiar");
+  const btnGuardar = document.getElementById("btn-guardar");
+
+  const estado = document.getElementById("estado");
+  const etiquetaSesion = document.getElementById("codigo-sesion");
+
+  let dibujando = false;
+  let firmaRealizada = false;
+  let guardando = false;
+
+  etiquetaSesion.textContent = CODIGO_SESION;
+
+  function configurarContexto() {
+    ctx.strokeStyle = "#111111";
+    ctx.lineWidth = 2.5;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+  }
+
+  function ajustarCanvas() {
+    let respaldo = null;
+
+    if (
+      canvas.width > 0
+      && canvas.height > 0
+      && firmaRealizada
+    ) {
+      respaldo = document.createElement("canvas");
+      respaldo.width = canvas.width;
+      respaldo.height = canvas.height;
+
+      const respaldoCtx = respaldo.getContext("2d");
+
+      respaldoCtx.drawImage(
+        canvas,
+        0,
+        0
+      );
+    }
+
+    const rect = canvas.getBoundingClientRect();
+    const escala = window.devicePixelRatio || 1;
+
+    canvas.width = Math.max(
+      1,
+      Math.floor(rect.width * escala)
+    );
+
+    canvas.height = Math.max(
+      1,
+      Math.floor(rect.height * escala)
+    );
+
+    ctx.setTransform(
+      escala,
+      0,
+      0,
+      escala,
+      0,
+      0
+    );
+
+    configurarContexto();
+
+    if (respaldo) {
+      ctx.drawImage(
+        respaldo,
+        0,
+        0,
+        respaldo.width,
+        respaldo.height,
+        0,
+        0,
+        rect.width,
+        rect.height
+      );
+    }
+  }
+
+  function obtenerPosicionMouse(evento) {
+    const rect = canvas.getBoundingClientRect();
+
+    return {
+      x: evento.clientX - rect.left,
+      y: evento.clientY - rect.top,
+    };
+  }
+
+  function obtenerPosicionTouch(evento) {
+    const rect = canvas.getBoundingClientRect();
+    const toque = evento.touches[0];
+
+    return {
+      x: toque.clientX - rect.left,
+      y: toque.clientY - rect.top,
+    };
+  }
+
+  function iniciarTrazo(posicion) {
+    if (guardando) {
+      return;
+    }
+
+    dibujando = true;
+
+    ctx.beginPath();
+
+    ctx.moveTo(
+      posicion.x,
+      posicion.y
+    );
+  }
+
+  function continuarTrazo(posicion) {
+    if (
+      !dibujando
+      || guardando
+    ) {
+      return;
+    }
+
+    ctx.lineTo(
+      posicion.x,
+      posicion.y
+    );
+
+    ctx.stroke();
+
+    firmaRealizada = true;
+  }
+
+  function finalizarTrazo() {
+    dibujando = false;
+    ctx.closePath();
+  }
+
+  canvas.addEventListener(
+    "mousedown",
+    evento => {
+      iniciarTrazo(
+        obtenerPosicionMouse(evento)
+      );
+    }
+  );
+
+  canvas.addEventListener(
+    "mousemove",
+    evento => {
+      continuarTrazo(
+        obtenerPosicionMouse(evento)
+      );
+    }
+  );
+
+  canvas.addEventListener(
+    "mouseup",
+    finalizarTrazo
+  );
+
+  canvas.addEventListener(
+    "mouseleave",
+    finalizarTrazo
+  );
+
+  canvas.addEventListener(
+    "touchstart",
+    evento => {
+      evento.preventDefault();
+
+      iniciarTrazo(
+        obtenerPosicionTouch(evento)
+      );
+    },
+    {
+      passive: false,
+    }
+  );
+
+  canvas.addEventListener(
+    "touchmove",
+    evento => {
+      evento.preventDefault();
+
+      continuarTrazo(
+        obtenerPosicionTouch(evento)
+      );
+    },
+    {
+      passive: false,
+    }
+  );
+
+  canvas.addEventListener(
+    "touchend",
+    finalizarTrazo
+  );
+
+  canvas.addEventListener(
+    "touchcancel",
+    finalizarTrazo
+  );
+
+  function setEstado(
+    mensaje,
+    clase
+  ) {
+    estado.textContent = mensaje;
+    estado.className = clase || "";
+  }
+
+  function bloquearBotones(bloquear) {
+    guardando = bloquear;
+
+    btnLimpiar.disabled = bloquear;
+    btnGuardar.disabled = bloquear;
+  }
+
+  function limpiarFirma() {
+    if (guardando) {
+      return;
+    }
+
+    const rect = canvas.getBoundingClientRect();
+
+    ctx.clearRect(
+      0,
+      0,
+      rect.width,
+      rect.height
+    );
+
+    firmaRealizada = false;
+
+    setEstado(
+      "Aún no firmado",
+      ""
+    );
+  }
+
+  async function guardarFirma() {
+    if (guardando) {
+      return;
+    }
+
+    if (!ROL) {
+      setEstado(
+        "✘ El tipo de firma no es válido.",
+        "err"
+      );
+
+      return;
+    }
+
+    if (!CODIGO_SESION) {
+      setEstado(
+        "✘ La sesión de firma no es válida.",
+        "err"
+      );
+
+      return;
+    }
+
+    if (!firmaRealizada) {
+      setEstado(
+        "⚠ El lienzo está vacío. Dibuja tu firma primero.",
+        "err"
+      );
+
+      return;
+    }
+
+    const dataUrl = canvas.toDataURL(
+      "image/png"
+    );
+
+    bloquearBotones(
+      true
+    );
+
+    setEstado(
+      "Guardando firma…",
+      "info"
+    );
+
+    try {
+      const respuesta = await fetch(
+        "/guardar_firma",
+        {
+          method: "POST",
+
+          headers: {
+            "Content-Type": "application/json",
+          },
+
+          body: JSON.stringify(
+            {
+              firma: dataUrl,
+              rol: ROL,
+              codigo_sesion: CODIGO_SESION,
+            }
+          ),
+        }
+      );
+
+      let datos = {};
+
+      try {
+        datos = await respuesta.json();
+      } catch (error) {
+        datos = {};
+      }
+
+      if (
+        respuesta.ok
+        && datos.ok
+      ) {
+        setEstado(
+          "✔ Firma guardada correctamente. "
+          + "Puedes cerrar esta página.",
+          "ok"
+        );
+
+        btnGuardar.disabled = true;
+        btnLimpiar.disabled = false;
+
+      } else {
+        setEstado(
+          "✘ "
+          + (
+            datos.error
+            || "No fue posible guardar la firma."
+          ),
+          "err"
+        );
+
+        bloquearBotones(
+          false
+        );
+      }
+
+    } catch (error) {
+      setEstado(
+        "✘ Sin conexión con el servidor.",
+        "err"
+      );
+
+      bloquearBotones(
+        false
+      );
+    }
+  }
+
+  btnLimpiar.addEventListener(
+    "click",
+    limpiarFirma
+  );
+
+  btnGuardar.addEventListener(
+    "click",
+    guardarFirma
+  );
+
+  window.addEventListener(
+    "resize",
+    ajustarCanvas
+  );
+
+  ajustarCanvas();
+</script>
+
+</body>
+</html>

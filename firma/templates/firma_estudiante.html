@@ -1,0 +1,736 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta
+  name="viewport"
+  content="width=device-width, initial-scale=1.0"
+>
+<title>Firma de Estudiante</title>
+
+<style>
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    font-family: Arial, sans-serif;
+    background: #0F1923;
+    color: #E8EDF2;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+    padding: 24px 16px;
+  }
+
+  h2 {
+    font-size: 1.2rem;
+    color: #4CAF7D;
+    margin-bottom: 4px;
+    text-align: center;
+  }
+
+  p.sub {
+    font-size: 0.82rem;
+    color: #8A9BB0;
+    margin-bottom: 8px;
+    text-align: center;
+  }
+
+  .sesion {
+    width: 100%;
+    max-width: 420px;
+    margin-bottom: 18px;
+    padding: 8px 10px;
+    border: 1px solid #2A3A50;
+    border-radius: 8px;
+    background: #162131;
+    color: #8A9BB0;
+    font-size: 0.76rem;
+    text-align: center;
+    word-break: break-word;
+  }
+
+  .campo {
+    width: 100%;
+    max-width: 420px;
+    margin-bottom: 12px;
+  }
+
+  .campo label {
+    display: block;
+    font-size: 0.78rem;
+    color: #8A9BB0;
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+
+  .campo input {
+    width: 100%;
+    padding: 12px;
+    border-radius: 8px;
+    border: 1px solid #2A3A50;
+    background: #1A2535;
+    color: #E8EDF2;
+    font-size: 1rem;
+  }
+
+  .campo input:focus {
+    outline: none;
+    border-color: #4CAF7D;
+  }
+
+  .campo input:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+  }
+
+  .campo small.error {
+    display: none;
+    color: #E05252;
+    font-size: 0.75rem;
+    margin-top: 4px;
+  }
+
+  .firma-label {
+    width: 100%;
+    max-width: 420px;
+    margin-top: 2px;
+    margin-bottom: 5px;
+    color: #8A9BB0;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+
+  #firma-wrap {
+    border: 2px solid #2A3A50;
+    border-radius: 10px;
+    overflow: hidden;
+    background: #FFFFFF;
+    width: 100%;
+    max-width: 420px;
+    margin-top: 2px;
+  }
+
+  canvas {
+    display: block;
+    width: 100%;
+    height: 200px;
+    touch-action: none;
+    cursor: crosshair;
+  }
+
+  .btn-row {
+    display: flex;
+    gap: 10px;
+    margin-top: 16px;
+    width: 100%;
+    max-width: 420px;
+  }
+
+  button {
+    flex: 1;
+    padding: 14px;
+    font-size: 1rem;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: bold;
+  }
+
+  button:active {
+    opacity: 0.75;
+  }
+
+  button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  #btn-limpiar {
+    background: #1E2D42;
+    color: #8A9BB0;
+    border: 1px solid #2A3A50;
+  }
+
+  #btn-guardar {
+    background: #4CAF7D;
+    color: #0F1923;
+  }
+
+  #estado {
+    margin-top: 20px;
+    font-size: 0.9rem;
+    color: #8A9BB0;
+    text-align: center;
+    min-height: 28px;
+    max-width: 420px;
+  }
+
+  #estado.ok {
+    color: #4CAF7D;
+    font-weight: bold;
+  }
+
+  #estado.err {
+    color: #E05252;
+  }
+
+  #estado.info {
+    color: #8A9BB0;
+  }
+</style>
+</head>
+
+<body>
+
+<h2>📝 Firma del Estudiante</h2>
+
+<p class="sub">
+  Completa tus datos y dibuja tu firma
+</p>
+
+<div class="sesion">
+  Sesión:
+  <strong id="codigo-sesion"></strong>
+</div>
+
+<div class="campo">
+  <label for="nombre">Nombre completo</label>
+
+  <input
+    type="text"
+    id="nombre"
+    placeholder="Ej: Esther Cedeño Andrade"
+    autocomplete="name"
+    maxlength="200"
+  >
+</div>
+
+<div class="campo">
+  <label for="cedula">Cédula</label>
+
+  <input
+    type="text"
+    id="cedula"
+    placeholder="10 dígitos"
+    inputmode="numeric"
+    autocomplete="off"
+    maxlength="10"
+  >
+
+  <small
+    class="error"
+    id="err-cedula"
+  >
+    La cédula debe contener exactamente 10 dígitos.
+  </small>
+</div>
+
+<div class="firma-label">
+  Firma
+</div>
+
+<div id="firma-wrap">
+  <canvas id="canvas"></canvas>
+</div>
+
+<div class="btn-row">
+  <button
+    type="button"
+    id="btn-limpiar"
+  >
+    Limpiar
+  </button>
+
+  <button
+    type="button"
+    id="btn-guardar"
+  >
+    Guardar firma
+  </button>
+</div>
+
+<div
+  id="estado"
+  role="status"
+  aria-live="polite"
+></div>
+
+<script>
+  const CODIGO_SESION = "{{ codigo_sesion }}";
+
+  const canvas = document.getElementById("canvas");
+  const ctx = canvas.getContext("2d");
+
+  const inputNombre = document.getElementById("nombre");
+  const inputCedula = document.getElementById("cedula");
+
+  const btnLimpiar = document.getElementById("btn-limpiar");
+  const btnGuardar = document.getElementById("btn-guardar");
+
+  const errCedula = document.getElementById("err-cedula");
+  const estado = document.getElementById("estado");
+  const etiquetaSesion = document.getElementById("codigo-sesion");
+
+  let dibujando = false;
+  let firmaRealizada = false;
+  let guardando = false;
+
+  etiquetaSesion.textContent = CODIGO_SESION;
+
+  function configurarContexto() {
+    ctx.strokeStyle = "#111111";
+    ctx.lineWidth = 2.5;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+  }
+
+  function ajustarCanvas() {
+    let respaldo = null;
+
+    if (
+      canvas.width > 0
+      && canvas.height > 0
+      && firmaRealizada
+    ) {
+      respaldo = document.createElement("canvas");
+      respaldo.width = canvas.width;
+      respaldo.height = canvas.height;
+
+      const respaldoCtx = respaldo.getContext("2d");
+
+      respaldoCtx.drawImage(
+        canvas,
+        0,
+        0
+      );
+    }
+
+    const rect = canvas.getBoundingClientRect();
+    const escala = window.devicePixelRatio || 1;
+
+    canvas.width = Math.max(
+      1,
+      Math.floor(rect.width * escala)
+    );
+
+    canvas.height = Math.max(
+      1,
+      Math.floor(rect.height * escala)
+    );
+
+    ctx.setTransform(
+      escala,
+      0,
+      0,
+      escala,
+      0,
+      0
+    );
+
+    configurarContexto();
+
+    if (respaldo) {
+      ctx.drawImage(
+        respaldo,
+        0,
+        0,
+        respaldo.width,
+        respaldo.height,
+        0,
+        0,
+        rect.width,
+        rect.height
+      );
+    }
+  }
+
+  function obtenerPosicionMouse(evento) {
+    const rect = canvas.getBoundingClientRect();
+
+    return {
+      x: evento.clientX - rect.left,
+      y: evento.clientY - rect.top,
+    };
+  }
+
+  function obtenerPosicionTouch(evento) {
+    const rect = canvas.getBoundingClientRect();
+    const toque = evento.touches[0];
+
+    return {
+      x: toque.clientX - rect.left,
+      y: toque.clientY - rect.top,
+    };
+  }
+
+  function iniciarTrazo(posicion) {
+    if (guardando) {
+      return;
+    }
+
+    dibujando = true;
+
+    ctx.beginPath();
+
+    ctx.moveTo(
+      posicion.x,
+      posicion.y
+    );
+  }
+
+  function continuarTrazo(posicion) {
+    if (
+      !dibujando
+      || guardando
+    ) {
+      return;
+    }
+
+    ctx.lineTo(
+      posicion.x,
+      posicion.y
+    );
+
+    ctx.stroke();
+
+    firmaRealizada = true;
+  }
+
+  function finalizarTrazo() {
+    dibujando = false;
+    ctx.closePath();
+  }
+
+  canvas.addEventListener(
+    "mousedown",
+    evento => {
+      iniciarTrazo(
+        obtenerPosicionMouse(evento)
+      );
+    }
+  );
+
+  canvas.addEventListener(
+    "mousemove",
+    evento => {
+      continuarTrazo(
+        obtenerPosicionMouse(evento)
+      );
+    }
+  );
+
+  canvas.addEventListener(
+    "mouseup",
+    finalizarTrazo
+  );
+
+  canvas.addEventListener(
+    "mouseleave",
+    finalizarTrazo
+  );
+
+  canvas.addEventListener(
+    "touchstart",
+    evento => {
+      evento.preventDefault();
+
+      iniciarTrazo(
+        obtenerPosicionTouch(evento)
+      );
+    },
+    {
+      passive: false,
+    }
+  );
+
+  canvas.addEventListener(
+    "touchmove",
+    evento => {
+      evento.preventDefault();
+
+      continuarTrazo(
+        obtenerPosicionTouch(evento)
+      );
+    },
+    {
+      passive: false,
+    }
+  );
+
+  canvas.addEventListener(
+    "touchend",
+    finalizarTrazo
+  );
+
+  canvas.addEventListener(
+    "touchcancel",
+    finalizarTrazo
+  );
+
+  function limpiarFirma() {
+    if (guardando) {
+      return;
+    }
+
+    const rect = canvas.getBoundingClientRect();
+
+    ctx.clearRect(
+      0,
+      0,
+      rect.width,
+      rect.height
+    );
+
+    firmaRealizada = false;
+
+    setEstado(
+      "",
+      ""
+    );
+  }
+
+  function setEstado(
+    mensaje,
+    clase
+  ) {
+    estado.textContent = mensaje;
+    estado.className = clase || "";
+  }
+
+  function bloquearFormulario(bloquear) {
+    guardando = bloquear;
+
+    inputNombre.disabled = bloquear;
+    inputCedula.disabled = bloquear;
+
+    btnLimpiar.disabled = bloquear;
+    btnGuardar.disabled = bloquear;
+  }
+
+  function limpiarFormulario() {
+    inputNombre.value = "";
+    inputCedula.value = "";
+
+    errCedula.style.display = "none";
+
+    const rect = canvas.getBoundingClientRect();
+
+    ctx.clearRect(
+      0,
+      0,
+      rect.width,
+      rect.height
+    );
+
+    firmaRealizada = false;
+  }
+
+  function validarFormulario() {
+    const nombre = inputNombre.value.trim();
+    const cedula = inputCedula.value.trim();
+
+    errCedula.style.display = "none";
+
+    if (!CODIGO_SESION) {
+      setEstado(
+        "✘ La sesión no es válida.",
+        "err"
+      );
+
+      return null;
+    }
+
+    if (!nombre) {
+      setEstado(
+        "⚠ Ingresa tu nombre completo.",
+        "err"
+      );
+
+      inputNombre.focus();
+
+      return null;
+    }
+
+    if (nombre.length > 200) {
+      setEstado(
+        "⚠ El nombre es demasiado largo.",
+        "err"
+      );
+
+      inputNombre.focus();
+
+      return null;
+    }
+
+    if (!/^\d{10}$/.test(cedula)) {
+      errCedula.style.display = "block";
+
+      setEstado(
+        "⚠ Revisa el número de cédula.",
+        "err"
+      );
+
+      inputCedula.focus();
+
+      return null;
+    }
+
+    if (!firmaRealizada) {
+      setEstado(
+        "⚠ Dibuja tu firma antes de guardar.",
+        "err"
+      );
+
+      return null;
+    }
+
+    return {
+      nombre,
+      cedula,
+    };
+  }
+
+  async function guardarFirma() {
+    if (guardando) {
+      return;
+    }
+
+    const datosFormulario = validarFormulario();
+
+    if (!datosFormulario) {
+      return;
+    }
+
+    const dataUrl = canvas.toDataURL(
+      "image/png"
+    );
+
+    bloquearFormulario(
+      true
+    );
+
+    setEstado(
+      "Guardando firma…",
+      "info"
+    );
+
+    try {
+      const respuesta = await fetch(
+        "/guardar_firma_estudiante",
+        {
+          method: "POST",
+
+          headers: {
+            "Content-Type": "application/json",
+          },
+
+          body: JSON.stringify(
+            {
+              codigo_sesion: CODIGO_SESION,
+              nombre: datosFormulario.nombre,
+              cedula: datosFormulario.cedula,
+              firma: dataUrl,
+            }
+          ),
+        }
+      );
+
+      let datos = {};
+
+      try {
+        datos = await respuesta.json();
+      } catch (error) {
+        datos = {};
+      }
+
+      if (
+        respuesta.ok
+        && datos.ok
+      ) {
+        limpiarFormulario();
+
+        setEstado(
+          "✔ Asistencia registrada correctamente. "
+          + "Total registrado: "
+          + String(datos.total || 1)
+          + ".",
+          "ok"
+        );
+
+        inputNombre.focus();
+
+      } else {
+        setEstado(
+          "✘ "
+          + (
+            datos.error
+            || "No fue posible guardar la firma."
+          ),
+          "err"
+        );
+      }
+
+    } catch (error) {
+      setEstado(
+        "✘ Sin conexión con el servidor.",
+        "err"
+      );
+
+    } finally {
+      bloquearFormulario(
+        false
+      );
+    }
+  }
+
+  inputCedula.addEventListener(
+    "input",
+    evento => {
+      evento.target.value = evento.target.value
+        .replace(/\D/g, "")
+        .slice(0, 10);
+
+      errCedula.style.display = "none";
+    }
+  );
+
+  inputNombre.addEventListener(
+    "input",
+    () => {
+      if (estado.className === "err") {
+        setEstado(
+          "",
+          ""
+        );
+      }
+    }
+  );
+
+  btnLimpiar.addEventListener(
+    "click",
+    limpiarFirma
+  );
+
+  btnGuardar.addEventListener(
+    "click",
+    guardarFirma
+  );
+
+  window.addEventListener(
+    "resize",
+    ajustarCanvas
+  );
+
+  ajustarCanvas();
+  inputNombre.focus();
+</script>
+
+</body>
+</html>
