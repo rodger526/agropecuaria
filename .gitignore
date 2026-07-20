@@ -1,28 +1,32 @@
-# Variables de entorno
+# Credenciales
 .env
 
 # Python
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
 
-# Compilaciones
+# PyInstaller
 build/
 dist/
 *.spec
 
 # Archivos temporales
 actualizacion_temporal.exe
+firmas_temporales/
 
-# PDFs generados
-pdfs_planificacion/
-pdfs_laboratorio/
+# Entornos virtuales
+venv/
+.venv/
+env/
 
-# Firmas
-firma/firmas/
-firma/sesiones/
-
-# Cache de VS Code
+# Editores
 .vscode/
+.idea/
 
-# Logs
-*.log
+# Node.js
+node_modules/
+
+# Sistema operativo
+Thumbs.db
+.DS_Store
