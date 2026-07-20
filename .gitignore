@@ -15,6 +15,10 @@ dist/
 actualizacion_temporal.exe
 firmas_temporales/
 
+# PDFs generados
+pdfs_laboratorio/
+pdfs_planificacion/
+
 # Entornos virtuales
 venv/
 .venv/
