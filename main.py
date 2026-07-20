@@ -6,7 +6,7 @@ from views.buscar_practica import VentanaBuscar
 from views.nuevo_informe import VentanaNuevoInforme
 from views.nueva_laboratorio import VentanaNuevoLaboratorio
 from views.nueva_practica import VentanaNuevaPractica
-
+from actualizacion.indicador_actualizacion import IndicadorActualizacion
 
 # ─── Paleta ──────────────────────────────────────────────────────────
 BG_DARK = "#0F1923"
@@ -243,6 +243,23 @@ class App(ctk.CTk):
         ).pack(
             anchor="w",
         )
+
+        # ── Notificación de actualización ────────────────────────────
+        self.indicador_actualizacion = IndicadorActualizacion(
+            header
+        )
+
+        self.indicador_actualizacion.iniciar_verificacion()
+
+        ctk.CTkFrame(
+            self,
+            height=3,
+            fg_color=ACCENT,
+            corner_radius=0,
+        ).pack(
+            fill="x"
+        )
+        
 
         ctk.CTkFrame(
             self,
