@@ -32,7 +32,3 @@ Brindar una solución digital que facilite la elaboración y administración de 
 - Centraliza la gestión de prácticas y laboratorios.
 - Facilita el acceso y almacenamiento de los documentos generados.
 - Contribuye a la digitalización de los procesos académicos.
-
-## Autor
-
-**César Fabián López Zambrano**
