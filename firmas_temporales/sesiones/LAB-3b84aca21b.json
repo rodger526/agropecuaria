@@ -1,0 +1,25 @@
+{
+  "estudiantes": [
+    {
+      "nombre": "Rodger Muñoz Molina",
+      "cedula": "1727330340",
+      "firma_ruta": "C:\\Users\\rodge\\proyecto\\agropecuaria\\firmas_temporales\\estudiantes\\LAB-3b84aca21b\\1727330340_9fcfda8f.png",
+      "hora": "22:37:03",
+      "fecha": "19/07/2026"
+    },
+    {
+      "nombre": "Ksbsj",
+      "cedula": "1472583690",
+      "firma_ruta": "C:\\Users\\rodge\\proyecto\\agropecuaria\\firmas_temporales\\estudiantes\\LAB-3b84aca21b\\1472583690_9139cae0.png",
+      "hora": "22:37:33",
+      "fecha": "19/07/2026"
+    },
+    {
+      "nombre": "Hojbboj",
+      "cedula": "1234567890",
+      "firma_ruta": "C:\\Users\\rodge\\proyecto\\agropecuaria\\firmas_temporales\\estudiantes\\LAB-3b84aca21b\\1234567890_040cac56.png",
+      "hora": "22:37:50",
+      "fecha": "19/07/2026"
+    }
+  ]
+}

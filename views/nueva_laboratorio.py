@@ -1,13 +1,17 @@
 import json
 import os
 import qrcode
+import shutil
 import socket
+import tempfile
 import threading
 import time
 import uuid
+from pathlib import Path
+from urllib.parse import quote
 
 import customtkinter as ctk
-
+from utils.rutas_app import ruta_datos
 from customtkinter import CTkImage
 from datetime import datetime
 from PIL import Image
@@ -18,10 +22,19 @@ from database.laboratorio.buscar_datos import (
     obtener_laboratorios_tipo,
 )
 from database.laboratorio.guardar_laboratorio import guardar_laboratorio
-from firma.servidor_firma import app as flask_app
+from firma.servidor_firma import (
+    app as flask_app,
+    eliminar_firmas_sesion,
+    obtener_ruta_firma,
+    CARPETA_SESIONES,
+)
 from models.laboratorio import Laboratorio
 from pdf.generador_pdf_laboratorio import generar_pdf_laboratorio
-from storage.subir_pdf_laboratorio import subir_pdf_laboratorio
+from storage.subir_pdf_laboratorio import (
+    eliminar_pdf_laboratorio_por_url,
+    subir_pdf_laboratorio,
+)
+from views.nueva_practica import _combo
 
 
 # ============================================================
@@ -44,25 +57,79 @@ RED = "#E05252"
 # Rutas de firmas de responsables
 # ============================================================
 
-BASE_DIR = os.path.dirname(
-    os.path.dirname(
-        os.path.abspath(__file__)
+RUTA_FIRMA_DOCENTE_LAB = str(
+    ruta_datos(
+        "datos",
+        "firmas",
+        "firma_docente_laboratorio.png",
     )
 )
 
-RUTA_FIRMA_DOCENTE_LAB = os.path.join(
-    BASE_DIR,
-    "firma",
-    "firmas",
-    "firma_docente_laboratorio.png",
+RUTA_FIRMA_ENCARGADO_LAB = str(
+    ruta_datos(
+        "datos",
+        "firmas",
+        "firma_encargado_laboratorio.png",
+    )
 )
 
-RUTA_FIRMA_ENCARGADO_LAB = os.path.join(
-    BASE_DIR,
-    "firma",
-    "firmas",
-    "firma_encargado_laboratorio.png",
-)
+# Debe utilizar exactamente la misma carpeta donde
+# servidor_firma.py guarda los JSON de estudiantes.
+CARPETA_SESIONES_FIRMA = str(CARPETA_SESIONES)
+
+
+# ============================================================
+# Servidor global de firmas
+# ============================================================
+
+PUERTO_FIRMAS = 5000
+
+_SERVIDOR_LOCK = threading.Lock()
+_SERVIDOR_INICIADO = False
+
+
+def _servidor_escuchando(
+    host="127.0.0.1",
+    puerto=PUERTO_FIRMAS,
+):
+    try:
+        with socket.create_connection(
+            (host, puerto),
+            timeout=0.4,
+        ):
+            return True
+    except OSError:
+        return False
+
+
+def _ejecutar_servidor_flask():
+    flask_app.run(
+        host="0.0.0.0",
+        port=PUERTO_FIRMAS,
+        debug=False,
+        use_reloader=False,
+        threaded=True,
+    )
+
+
+def _asegurar_servidor_firmas():
+    global _SERVIDOR_INICIADO
+
+    with _SERVIDOR_LOCK:
+        if (
+            _SERVIDOR_INICIADO
+            or _servidor_escuchando()
+        ):
+            _SERVIDOR_INICIADO = True
+            return
+
+        threading.Thread(
+            target=_ejecutar_servidor_flask,
+            daemon=True,
+            name="ServidorFirmasFlask",
+        ).start()
+
+        _SERVIDOR_INICIADO = True
 
 
 # ============================================================
@@ -253,6 +320,10 @@ def _section_card(
 class _Autocompletado:
     """
     Dropdown de sugerencias para un CTkEntry.
+
+    La búsqueda se ejecuta en un hilo secundario para evitar bloquear
+    la interfaz mientras se consulta PostgreSQL. También utiliza caché
+    temporal para que las búsquedas repetidas respondan más rápido.
     """
 
     def __init__(
@@ -261,7 +332,7 @@ class _Autocompletado:
         fn_buscar,
         on_seleccion,
         min_chars=1,
-        retardo_ms=250,
+        retardo_ms=120,
     ):
         self.entry = entry
         self.fn_buscar = fn_buscar
@@ -271,6 +342,10 @@ class _Autocompletado:
 
         self._toplevel = None
         self._after_id = None
+        self._consulta_id = 0
+        self._cache = {}
+        self._cache_orden = []
+        self._cache_maximo = 40
 
         entry.bind(
             "<KeyRelease>",
@@ -278,9 +353,19 @@ class _Autocompletado:
         )
 
         entry.bind(
+            "<Down>",
+            self._enfocar_primera_opcion,
+        )
+
+        entry.bind(
+            "<Escape>",
+            lambda _event: self._cerrar(),
+        )
+
+        entry.bind(
             "<FocusOut>",
             lambda _event: entry.after(
-                150,
+                220,
                 self._cerrar,
             ),
         )
@@ -321,12 +406,111 @@ class _Autocompletado:
             self._cerrar()
             return
 
+        clave = texto.casefold()
+
+        if clave in self._cache:
+            self._mostrar_si_vigente(
+                texto,
+                self._cache[clave],
+                self._consulta_id,
+            )
+            return
+
+        self._consulta_id += 1
+        consulta_actual = self._consulta_id
+
+        threading.Thread(
+            target=self._buscar_en_hilo,
+            args=(
+                texto,
+                clave,
+                consulta_actual,
+            ),
+            daemon=True,
+            name="BuscarSugerenciasLaboratorio",
+        ).start()
+
+    def _buscar_en_hilo(
+        self,
+        texto,
+        clave,
+        consulta_actual,
+    ):
         try:
             resultados = self.fn_buscar(
                 texto
-            )
+            ) or []
         except Exception:
             resultados = []
+
+        resultados = list(
+            resultados[:8]
+        )
+
+        self._guardar_cache(
+            clave,
+            resultados,
+        )
+
+        try:
+            self.entry.after(
+                0,
+                lambda: self._mostrar_si_vigente(
+                    texto,
+                    resultados,
+                    consulta_actual,
+                ),
+            )
+        except Exception:
+            pass
+
+    def _guardar_cache(
+        self,
+        clave,
+        resultados,
+    ):
+        if clave not in self._cache:
+            self._cache_orden.append(
+                clave
+            )
+
+        self._cache[clave] = resultados
+
+        while len(self._cache_orden) > self._cache_maximo:
+            clave_antigua = self._cache_orden.pop(
+                0
+            )
+            self._cache.pop(
+                clave_antigua,
+                None,
+            )
+
+    def limpiar_cache(self):
+        self._cache.clear()
+        self._cache_orden.clear()
+
+    def _mostrar_si_vigente(
+        self,
+        texto_consultado,
+        resultados,
+        consulta_actual,
+    ):
+        if not self.entry.winfo_exists():
+            return
+
+        texto_actual = self.entry.get().strip()
+
+        if (
+            texto_actual.casefold()
+            != texto_consultado.casefold()
+        ):
+            return
+
+        if (
+            consulta_actual
+            and consulta_actual != self._consulta_id
+        ):
+            return
 
         if not resultados:
             self._cerrar()
@@ -350,7 +534,7 @@ class _Autocompletado:
             )
             ancho = max(
                 self.entry.winfo_width(),
-                180,
+                220,
             )
         except Exception:
             return
@@ -365,8 +549,8 @@ class _Autocompletado:
 
         alto = min(
             len(resultados),
-            6,
-        ) * 30
+            8,
+        ) * 32
 
         self._toplevel.geometry(
             f"{ancho}x{alto}+{x}+{y}"
@@ -384,7 +568,7 @@ class _Autocompletado:
         except Exception:
             pass
 
-        for item in resultados[:6]:
+        for item in resultados[:8]:
             texto_item = item.get(
                 "nombre",
                 "",
@@ -404,7 +588,7 @@ class _Autocompletado:
                 text_color=TEXT_PRI,
                 font=("Consolas", 12),
                 corner_radius=0,
-                height=30,
+                height=32,
                 command=lambda item_actual=item: self._elegir(
                     item_actual
                 ),
@@ -412,6 +596,28 @@ class _Autocompletado:
             boton.pack(
                 fill="x"
             )
+
+            boton.bind(
+                "<Return>",
+                lambda _event, item_actual=item: self._elegir(
+                    item_actual
+                ),
+            )
+
+    def _enfocar_primera_opcion(
+        self,
+        _event=None,
+    ):
+        if (
+            self._toplevel is None
+            or not self._toplevel.winfo_exists()
+        ):
+            return
+
+        hijos = self._toplevel.winfo_children()
+
+        if hijos:
+            hijos[0].focus_set()
 
     def _elegir(
         self,
@@ -730,15 +936,23 @@ class VentanaNuevoLaboratorio(ctk.CTkToplevel):
             f"LAB-{uuid.uuid4().hex[:10]}"
         )
 
-        # Estado servidor Flask.
-        self._servidor_iniciado = False
-
-        # Polling independiente.
+        # Estado interno.
         self._polling_estudiantes_activo = False
         self._polling_responsables_activo = False
+        self._guardando = False
+        self._cerrando = False
+
+        self._after_estudiantes = None
+        self._after_responsables = None
 
         # Referencias de imágenes CTkImage.
         self._img_refs = {}
+        self._firma_mtimes = {}
+
+        self.protocol(
+            "WM_DELETE_WINDOW",
+            self._cerrar_ventana,
+        )
 
         # Firmas de estudiantes.
         self._estudiantes_firmados = []
@@ -747,23 +961,14 @@ class VentanaNuevoLaboratorio(ctk.CTkToplevel):
         self._encargado_actual = ""
         self._cargo_encargado_actual = ""
 
-        # Eliminar firmas responsables anteriores.
-        for ruta_firma in (
-            RUTA_FIRMA_DOCENTE_LAB,
-            RUTA_FIRMA_ENCARGADO_LAB,
-        ):
-            try:
-                if os.path.isfile(
-                    ruta_firma
-                ):
-                    os.remove(
-                        ruta_firma
-                    )
-            except Exception as error:
-                print(
-                    "No se pudo limpiar una firma anterior:",
-                    error,
-                )
+        # Limpiar únicamente la sesión recién creada.
+        # No se eliminan archivos globales compartidos.
+        try:
+            eliminar_firmas_sesion(
+                self._codigo_sesion
+            )
+        except Exception:
+            pass
 
         # Catálogo de laboratorios.
         self._labs_tipo = obtener_laboratorios_tipo()
@@ -1046,8 +1251,25 @@ class VentanaNuevoLaboratorio(ctk.CTkToplevel):
             anchor="w"
         )
 
-        self.unidad_academica = _entry(
-            c4
+        self.unidad_academica = _combo(
+            c4,
+            [
+                "Facultad de Ciencias de la Vida y Tecnologías",
+                "Facultad de Ciencias Administrativas, Contables y Comercio",
+                "Facultad de Ciencias de la Salud",
+                "Facultad de Ciencias Sociales, Derecho y Bienestar",
+                "Facultad de Educación, Turismo, Artes y Humanidades",
+                "Facultad de Ingeniería, Industria y Construcción",
+                "Extensión Bahía de Caráquez",
+                "Extensión Chone",
+                "Extensión El Carmen",
+                "Extensión Flavio Alfaro",
+                "Extensión Pedernales",
+                "Extensión Pichincha",
+                "Extensión Santo Domingo",
+                "Extensión Tosagua",
+                "Finca Experimental Lodana",
+            ],
         )
         self.unidad_academica.pack(
             fill="x",
@@ -1108,8 +1330,13 @@ class VentanaNuevoLaboratorio(ctk.CTkToplevel):
             anchor="w"
         )
 
-        self.carrera = _entry(
-            c6
+        self.carrera = _combo(
+            c6,
+            [
+                "Ingeniería Agroindustria",
+                "Ingeniería Agropecuaria",
+                "Ingeniería Agronegocios",
+            ],
         )
         self.carrera.pack(
             fill="x",
@@ -1207,7 +1434,12 @@ class VentanaNuevoLaboratorio(ctk.CTkToplevel):
         )
 
         self.institucion = _entry(
-            c9
+            c9,
+            "Nombre de la institución",
+        )
+        self.institucion.insert(
+            0,
+            "Universidad Laica Eloy Alfaro de Manabí",
         )
         self.institucion.pack(
             fill="x",
@@ -1232,8 +1464,20 @@ class VentanaNuevoLaboratorio(ctk.CTkToplevel):
             anchor="w"
         )
 
-        self.ciudad = _entry(
-            c10
+        self.ciudad = _combo(
+            c10,
+            [
+                "Manta",
+                "Bahía de Caráquez",
+                "Chone",
+                "El Carmen",
+                "Flavio Alfaro",
+                "Pedernales",
+                "Pichincha",
+                "Santo Domingo",
+                "Tosagua",
+                "Lodana",
+            ],
         )
         self.ciudad.pack(
             fill="x",
@@ -1811,7 +2055,7 @@ class VentanaNuevoLaboratorio(ctk.CTkToplevel):
         )
 
         # ══ BOTÓN GUARDAR ════════════════════════════════════════════
-        ctk.CTkButton(
+        self._btn_guardar = ctk.CTkButton(
             self.scroll,
             text="⬤  GUARDAR REGISTRO",
             command=self.guardar,
@@ -1821,7 +2065,8 @@ class VentanaNuevoLaboratorio(ctk.CTkToplevel):
             font=("Consolas", 14, "bold"),
             corner_radius=8,
             height=48,
-        ).pack(
+        )
+        self._btn_guardar.pack(
             pady=24,
             fill="x",
         )
@@ -1948,26 +2193,11 @@ class VentanaNuevoLaboratorio(ctk.CTkToplevel):
     # ================================================================
 
     def _asegurar_servidor(self):
-        if self._servidor_iniciado:
-            return
+        """
+        Inicia Flask una sola vez para toda la aplicación.
+        """
 
-        hilo = threading.Thread(
-            target=lambda: flask_app.run(
-                host="0.0.0.0",
-                port=5000,
-                debug=False,
-                use_reloader=False,
-            ),
-            daemon=True,
-        )
-
-        hilo.start()
-
-        self._servidor_iniciado = True
-
-        time.sleep(
-            0.9
-        )
+        _asegurar_servidor_firmas()
 
     @staticmethod
     def _obtener_ip_red():
@@ -2000,49 +2230,83 @@ class VentanaNuevoLaboratorio(ctk.CTkToplevel):
     # ================================================================
 
     def _iniciar_servidor_estudiantes(self):
-        self._asegurar_servidor()
+        if self._cerrando:
+            return
 
-        self._generar_qr_estudiantes()
+        try:
+            self._asegurar_servidor()
 
-        if not self._polling_estudiantes_activo:
-            self._polling_estudiantes_activo = True
-            self._polling_estudiantes()
+            self._btn_qr_est.configure(
+                state="disabled",
+                text="GENERANDO QR...",
+            )
 
-        self._btn_qr_est.configure(
-            text="↺  Regenerar QR"
-        )
+            self.after(
+                700,
+                self._activar_qr_estudiantes,
+            )
+
+        except Exception as error:
+            messagebox.showerror(
+                "Servidor de firmas",
+                (
+                    "No se pudo iniciar el servidor de firmas.\n\n"
+                    f"{error}"
+                ),
+                parent=self,
+            )
+
+    def _activar_qr_estudiantes(self):
+        if self._cerrando or not self.winfo_exists():
+            return
+
+        try:
+            self._generar_qr_estudiantes()
+
+            if not self._polling_estudiantes_activo:
+                self._polling_estudiantes_activo = True
+                self._polling_estudiantes()
+
+            self._btn_qr_est.configure(
+                state="normal",
+                text="↺  Regenerar QR para estudiantes",
+            )
+
+        except Exception as error:
+            self._btn_qr_est.configure(
+                state="normal",
+                text="⬤  Generar QR para estudiantes",
+            )
+
+            messagebox.showerror(
+                "Código QR",
+                f"No se pudo generar el QR:\n\n{error}",
+                parent=self,
+            )
 
     def _generar_qr_estudiantes(self):
         ip = self._obtener_ip_red()
+        sesion = quote(
+            self._codigo_sesion,
+            safe="",
+        )
 
         url = (
-            f"http://{ip}:5000/"
-            f"firma/estudiante/{self._codigo_sesion}"
+            f"http://{ip}:{PUERTO_FIRMAS}/"
+            f"firma/estudiante/{sesion}"
         )
 
-        qr_img = qrcode.make(
-            url
-        ).resize(
-            (
-                190,
-                190,
-            )
-        ).convert(
-            "RGB"
-        )
+        qr_img = qrcode.make(url).resize(
+            (190, 190)
+        ).convert("RGB")
 
         photo = CTkImage(
             light_image=qr_img,
             dark_image=qr_img,
-            size=(
-                190,
-                190,
-            ),
+            size=(190, 190),
         )
 
-        self._img_refs[
-            "qr_estudiantes"
-        ] = photo
+        self._img_refs["qr_estudiantes"] = photo
 
         self._lbl_qr_est.configure(
             image=photo,
@@ -2065,13 +2329,15 @@ class VentanaNuevoLaboratorio(ctk.CTkToplevel):
             return None
 
     def _polling_estudiantes(self):
-        if not self.winfo_exists():
+        if (
+            self._cerrando
+            or not self._polling_estudiantes_activo
+            or not self.winfo_exists()
+        ):
             return
 
         ruta_sesion = os.path.join(
-            BASE_DIR,
-            "firma",
-            "sesiones",
+            CARPETA_SESIONES_FIRMA,
             f"{self._codigo_sesion}.json",
         )
 
@@ -2181,8 +2447,8 @@ class VentanaNuevoLaboratorio(ctk.CTkToplevel):
             self._polling_estudiantes_activo = False
             return
 
-        self.after(
-            2500,
+        self._after_estudiantes = self.after(
+            800,
             self._polling_estudiantes,
         )
 
@@ -2191,6 +2457,9 @@ class VentanaNuevoLaboratorio(ctk.CTkToplevel):
     # ================================================================
 
     def _iniciar_firmas_responsables(self):
+        if self._cerrando:
+            return
+
         if not self.docente.get().strip():
             messagebox.showwarning(
                 "Docente pendiente",
@@ -2207,26 +2476,69 @@ class VentanaNuevoLaboratorio(ctk.CTkToplevel):
                 "Encargado pendiente",
                 (
                     "El laboratorio seleccionado no tiene un "
-                    "encargado configurado en la base de datos."
+                    "encargado configurado."
                 ),
                 parent=self,
             )
             return
 
-        self._asegurar_servidor()
+        try:
+            self._asegurar_servidor()
 
-        self._generar_qrs_responsables()
+            self._btn_qr_responsables.configure(
+                state="disabled",
+                text="GENERANDO QR...",
+            )
 
-        if not self._polling_responsables_activo:
-            self._polling_responsables_activo = True
-            self._polling_firmas_responsables()
+            self.after(
+                700,
+                self._activar_qrs_responsables,
+            )
 
-        self._btn_qr_responsables.configure(
-            text="↺  Regenerar QR de responsables"
-        )
+        except Exception as error:
+            messagebox.showerror(
+                "Servidor de firmas",
+                (
+                    "No se pudo iniciar el servidor de firmas.\n\n"
+                    f"{error}"
+                ),
+                parent=self,
+            )
+
+    def _activar_qrs_responsables(self):
+        if self._cerrando or not self.winfo_exists():
+            return
+
+        try:
+            self._generar_qrs_responsables()
+
+            if not self._polling_responsables_activo:
+                self._polling_responsables_activo = True
+                self._polling_firmas_responsables()
+
+            self._btn_qr_responsables.configure(
+                state="normal",
+                text="↺  Regenerar QR de responsables",
+            )
+
+        except Exception as error:
+            self._btn_qr_responsables.configure(
+                state="normal",
+                text="⬤  Generar QR de responsables",
+            )
+
+            messagebox.showerror(
+                "Códigos QR",
+                f"No se pudieron generar los QR:\n\n{error}",
+                parent=self,
+            )
 
     def _generar_qrs_responsables(self):
         ip = self._obtener_ip_red()
+        sesion = quote(
+            self._codigo_sesion,
+            safe="",
+        )
 
         configuraciones = (
             (
@@ -2241,32 +2553,21 @@ class VentanaNuevoLaboratorio(ctk.CTkToplevel):
 
         for rol, label_qr in configuraciones:
             url = (
-                f"http://{ip}:5000/firma/{rol}"
+                f"http://{ip}:{PUERTO_FIRMAS}"
+                f"/firma/{rol}?sesion={sesion}"
             )
 
-            imagen_qr = qrcode.make(
-                url
-            ).resize(
-                (
-                    170,
-                    170,
-                )
-            ).convert(
-                "RGB"
-            )
+            imagen_qr = qrcode.make(url).resize(
+                (170, 170)
+            ).convert("RGB")
 
             photo = CTkImage(
                 light_image=imagen_qr,
                 dark_image=imagen_qr,
-                size=(
-                    170,
-                    170,
-                ),
+                size=(170, 170),
             )
 
-            self._img_refs[
-                f"qr_{rol}"
-            ] = photo
+            self._img_refs[f"qr_{rol}"] = photo
 
             label_qr.configure(
                 image=photo,
@@ -2274,52 +2575,57 @@ class VentanaNuevoLaboratorio(ctk.CTkToplevel):
             )
 
     def _polling_firmas_responsables(self):
-        if not self.winfo_exists():
+        if (
+            self._cerrando
+            or not self._polling_responsables_activo
+            or not self.winfo_exists()
+        ):
             return
 
-        # Docente
-        if os.path.isfile(
-            RUTA_FIRMA_DOCENTE_LAB
-        ):
-            self._lbl_estado_docente_lab.configure(
-                text="✔  Firmado",
-                text_color=ACCENT,
-            )
-
-            self._mostrar_preview_firma(
-                RUTA_FIRMA_DOCENTE_LAB,
+        configuraciones = (
+            (
+                "docente_laboratorio",
+                self._lbl_estado_docente_lab,
                 self._lbl_preview_docente_lab,
                 "preview_docente_laboratorio",
-            )
-
-        else:
-            self._lbl_estado_docente_lab.configure(
-                text="⏳  Pendiente de firma",
-                text_color=TEXT_SEC,
-            )
-
-        # Encargado
-        if os.path.isfile(
-            RUTA_FIRMA_ENCARGADO_LAB
-        ):
-            self._lbl_estado_encargado_lab.configure(
-                text="✔  Firmado",
-                text_color=ACCENT,
-            )
-
-            self._mostrar_preview_firma(
-                RUTA_FIRMA_ENCARGADO_LAB,
+            ),
+            (
+                "encargado_laboratorio",
+                self._lbl_estado_encargado_lab,
                 self._lbl_preview_encargado_lab,
                 "preview_encargado_laboratorio",
+            ),
+        )
+
+        for (
+            rol,
+            label_estado,
+            label_preview,
+            clave_preview,
+        ) in configuraciones:
+            ruta = obtener_ruta_firma(
+                rol,
+                self._codigo_sesion,
             )
 
-        else:
-            self._lbl_estado_encargado_lab.configure(
-                text="⏳  Pendiente de firma",
-                text_color=TEXT_SEC,
-            )
+            if ruta and os.path.isfile(ruta):
+                label_estado.configure(
+                    text="✔  Firmado",
+                    text_color=ACCENT,
+                )
 
-        self.after(
+                self._mostrar_preview_firma(
+                    ruta,
+                    label_preview,
+                    clave_preview,
+                )
+            else:
+                label_estado.configure(
+                    text="⏳  Pendiente de firma",
+                    text_color=TEXT_SEC,
+                )
+
+        self._after_responsables = self.after(
             2000,
             self._polling_firmas_responsables,
         )
@@ -2330,357 +2636,687 @@ class VentanaNuevoLaboratorio(ctk.CTkToplevel):
         label,
         key,
     ):
-        if key in self._img_refs:
-            return
-
         try:
-            imagen = Image.open(
-                ruta
-            ).convert(
-                "RGBA"
-            )
+            mtime = os.path.getmtime(ruta)
 
-            fondo = Image.new(
-                "RGBA",
-                imagen.size,
-                (
-                    255,
-                    255,
-                    255,
-                    255,
-                ),
-            )
+            if self._firma_mtimes.get(key) == mtime:
+                return
 
-            if "A" in imagen.getbands():
-                fondo.paste(
-                    imagen,
-                    mask=imagen.getchannel(
-                        "A"
-                    ),
-                )
-            else:
-                fondo.paste(
-                    imagen
+            with Image.open(ruta) as imagen_original:
+                imagen = imagen_original.convert("RGBA")
+
+                fondo = Image.new(
+                    "RGBA",
+                    imagen.size,
+                    (255, 255, 255, 255),
                 )
 
-            fondo = fondo.convert(
-                "RGB"
-            )
+                if "A" in imagen.getbands():
+                    fondo.paste(
+                        imagen,
+                        mask=imagen.getchannel("A"),
+                    )
+                else:
+                    fondo.paste(imagen)
 
-            fondo.thumbnail(
-                (
-                    200,
-                    80,
-                )
-            )
+                fondo = fondo.convert("RGB")
+                fondo.thumbnail((200, 80))
 
             photo = CTkImage(
                 light_image=fondo,
                 dark_image=fondo,
                 size=(
-                    200,
-                    80,
+                    max(1, fondo.width),
+                    max(1, fondo.height),
                 ),
             )
 
-            self._img_refs[
-                key
-            ] = photo
+            self._img_refs[key] = photo
+            self._firma_mtimes[key] = mtime
 
-            label.configure(
-                image=photo,
-                text="",
-            )
+            if label.winfo_exists():
+                label.configure(
+                    image=photo,
+                    text="",
+                )
 
-        except Exception as error:
+        except (OSError, ValueError) as error:
             print(
                 "No se pudo mostrar la firma:",
                 error,
             )
 
-    # ================================================================
-    # Guardar
-    # ================================================================
+    @staticmethod
+    def _texto_textbox(widget):
+        return widget.get(
+            "1.0",
+            "end",
+        ).strip()
+
+    def _validar_formulario(self):
+        try:
+            numero_estudiantes = int(
+                self.numero_estudiantes.get().strip()
+            )
+            semestre = int(
+                self.semestre.get().strip()
+            )
+            hora_entrada = _normalizar_hora(
+                self.hora_entrada.get()
+            )
+            hora_salida = _normalizar_hora(
+                self.hora_salida.get()
+            )
+
+        except ValueError as error:
+            raise ValueError(
+                "Revise el semestre, el número de estudiantes "
+                f"y los horarios.\n\n{error}"
+            ) from error
+
+        if numero_estudiantes <= 0:
+            raise ValueError(
+                "El número de estudiantes debe ser mayor que cero."
+            )
+
+        if semestre <= 0:
+            raise ValueError(
+                "El semestre debe ser mayor que cero."
+            )
+
+        if hora_entrada >= hora_salida:
+            raise ValueError(
+                "La hora de salida debe ser posterior "
+                "a la hora de entrada."
+            )
+
+        campos = {
+            "Laboratorio": self.laboratorio.get().strip(),
+            "Asignatura": self.asignatura.get().strip(),
+            "Unidad académica": self.unidad_academica.get().strip(),
+            "Carrera": self.carrera.get().strip(),
+            "Institución": self.institucion.get().strip(),
+            "Ciudad": self.ciudad.get().strip(),
+            "Docente responsable": self.docente.get().strip(),
+            "Tema de la práctica": self._texto_textbox(self.tema),
+            "Subtema": self._texto_textbox(self.subtema),
+            "Logro de aprendizaje": self._texto_textbox(self.logro),
+            "Objetivos": self._texto_textbox(self.objetivos),
+            "Metodología": self._texto_textbox(self.metodologia),
+            "Resultados": self._texto_textbox(self.resultados),
+            "Conclusiones": self._texto_textbox(self.conclusiones),
+        }
+
+        faltantes = [
+            nombre
+            for nombre, valor in campos.items()
+            if not valor
+        ]
+
+        if faltantes:
+            raise ValueError(
+                "Debe completar los siguientes campos:\n\n• "
+                + "\n• ".join(faltantes)
+            )
+
+        if not self._encargado_actual:
+            raise ValueError(
+                "El laboratorio seleccionado no tiene "
+                "un encargado configurado."
+            )
+
+        if not self._cargo_encargado_actual:
+            raise ValueError(
+                "El encargado del laboratorio no tiene "
+                "un cargo configurado."
+            )
+
+        return (
+            numero_estudiantes,
+            semestre,
+            hora_entrada,
+            hora_salida,
+        )
+    
+    @staticmethod
+    def _copiar_firma_persistente(
+        ruta_origen,
+        carpeta_destino,
+        nombre_archivo,
+    ):
+        """
+        Copia una firma temporal a una carpeta permanente.
+
+        Esto evita que las rutas almacenadas en PostgreSQL dejen
+        de funcionar después de limpiar la sesión temporal.
+        """
+
+        if not ruta_origen:
+            return None
+
+        ruta_origen = str(
+            ruta_origen
+        ).strip()
+
+        if not os.path.isfile(
+            ruta_origen
+        ):
+            return None
+
+        os.makedirs(
+            carpeta_destino,
+            exist_ok=True,
+        )
+
+        ruta_destino = os.path.join(
+            carpeta_destino,
+            nombre_archivo,
+        )
+
+        shutil.copy2(
+            ruta_origen,
+            ruta_destino,
+        )
+
+        return os.path.abspath(
+            ruta_destino
+        )
+
+    def _persistir_firmas_laboratorio(
+        self,
+        codigo,
+        estudiantes,
+    ):
+        """
+        Conserva permanentemente las firmas antes de generar el PDF
+        y eliminar los archivos temporales.
+
+        Devuelve:
+
+            estudiantes con rutas permanentes,
+            ruta permanente de la firma docente,
+            ruta permanente de la firma del encargado.
+        """
+
+        carpeta_registro = str(
+            ruta_datos(
+                "datos",
+                "firmas_laboratorios",
+                codigo,
+            )
+        )
+
+        carpeta_estudiantes = os.path.join(
+            carpeta_registro,
+            "estudiantes",
+        )
+
+        estudiantes_persistentes = []
+
+        for indice, estudiante in enumerate(
+            estudiantes,
+            start=1,
+        ):
+            estudiante_copia = dict(
+                estudiante
+            )
+
+            ruta_temporal = estudiante_copia.get(
+                "firma_ruta"
+            )
+
+            cedula = str(
+                estudiante_copia.get(
+                    "cedula"
+                )
+                or f"sin_cedula_{indice}"
+            ).strip()
+
+            cedula_segura = "".join(
+                caracter
+                for caracter in cedula
+                if (
+                    caracter.isalnum()
+                    or caracter in (
+                        "-",
+                        "_",
+                    )
+                )
+            )
+
+            if not cedula_segura:
+                cedula_segura = (
+                    f"estudiante_{indice}"
+                )
+
+            ruta_permanente = (
+                self._copiar_firma_persistente(
+                    ruta_temporal,
+                    carpeta_estudiantes,
+                    (
+                        f"{indice:03d}_"
+                        f"{cedula_segura}.png"
+                    ),
+                )
+            )
+
+            if ruta_permanente:
+                estudiante_copia[
+                    "firma_ruta"
+                ] = ruta_permanente
+
+            estudiantes_persistentes.append(
+                estudiante_copia
+            )
+
+        firma_docente_temporal = (
+            obtener_ruta_firma(
+                "docente_laboratorio",
+                self._codigo_sesion,
+            )
+        )
+
+        firma_encargado_temporal = (
+            obtener_ruta_firma(
+                "encargado_laboratorio",
+                self._codigo_sesion,
+            )
+        )
+
+        firma_docente = (
+            self._copiar_firma_persistente(
+                firma_docente_temporal,
+                carpeta_registro,
+                "firma_docente.png",
+            )
+        )
+
+        firma_encargado = (
+            self._copiar_firma_persistente(
+                firma_encargado_temporal,
+                carpeta_registro,
+                "firma_encargado.png",
+            )
+        )
+
+        return (
+            estudiantes_persistentes,
+            firma_docente,
+            firma_encargado,
+        )
+
+    def _crear_objeto_laboratorio(
+        self,
+        numero_estudiantes,
+        semestre,
+        hora_entrada,
+        hora_salida,
+    ):
+        codigo = datetime.now().strftime(
+            "LAB-%Y%m%d%H%M%S%f"
+        )
+
+        estudiantes = [
+            {
+                "nombre": estudiante.get("nombre"),
+                "cedula": estudiante.get("cedula"),
+                "firma_ruta": estudiante.get("firma_ruta"),
+                "hora": estudiante.get("hora"),
+                "fecha": estudiante.get("fecha"),
+            }
+            for estudiante in self._estudiantes_firmados
+        ]
+
+        for linea in self.estudiantes.get(
+            "1.0",
+            "end",
+        ).splitlines():
+            linea = linea.strip()
+
+            if not linea:
+                continue
+
+            estudiantes.append(
+                {
+                    "nombre": linea,
+                    "cedula": None,
+                    "firma_ruta": None,
+                    "hora": None,
+                    "fecha": None,
+                }
+            )
+
+        (
+            estudiantes,
+            firma_docente,
+            firma_encargado,
+        ) = self._persistir_firmas_laboratorio(
+            codigo,
+            estudiantes,
+        )
+
+        return Laboratorio(
+            codigo=codigo,
+            laboratorio=self.laboratorio.get().strip(),
+            numero_estudiantes=numero_estudiantes,
+            asignatura=self.asignatura.get().strip(),
+            unidad_academica=self.unidad_academica.get().strip(),
+            semestre=semestre,
+            carrera=self.carrera.get().strip(),
+            hora_entrada=hora_entrada,
+            hora_salida=hora_salida,
+            institucion=self.institucion.get().strip(),
+            ciudad=self.ciudad.get().strip(),
+            docente_responsable=self.docente.get().strip(),
+            fecha_practica=datetime.now().strftime("%Y-%m-%d"),
+            tema_practica=self._texto_textbox(self.tema),
+            subtema=self._texto_textbox(self.subtema),
+            logro_aprendizaje=self._texto_textbox(self.logro),
+            objetivos=self._texto_textbox(self.objetivos),
+            metodologia=self._texto_textbox(self.metodologia),
+            resultados=self._texto_textbox(self.resultados),
+            conclusiones=self._texto_textbox(self.conclusiones),
+            observaciones=self._texto_textbox(self.observaciones),
+            materiales=self.widget_materiales.obtener_items(),
+            reactivos=self.widget_reactivos.obtener_items(),
+            estudiantes=estudiantes,
+            encargado_laboratorio=self._encargado_actual,
+            cargo_encargado=self._cargo_encargado_actual,
+            firma_encargado_ruta=firma_encargado,
+            firma_docente_ruta=firma_docente,
+            codigo_sesion=self._codigo_sesion,
+        )
+
 
     def guardar(self):
+        """
+        Valida y ejecuta el guardado fuera del hilo de Tkinter.
+        """
+
+        if self._guardando:
+            return
+
         try:
-            codigo = datetime.now().strftime(
-                "LAB-%Y%m%d%H%M%S%f"
+            datos_validados = self._validar_formulario()
+        except ValueError as error:
+            messagebox.showerror(
+                "Datos incompletos",
+                str(error),
+                parent=self,
+            )
+            return
+
+        firma_docente = obtener_ruta_firma(
+            "docente_laboratorio",
+            self._codigo_sesion,
+        )
+        firma_encargado = obtener_ruta_firma(
+            "encargado_laboratorio",
+            self._codigo_sesion,
+        )
+
+        faltantes = []
+
+        if not firma_docente:
+            faltantes.append("Docente responsable")
+
+        if not firma_encargado:
+            faltantes.append("Encargado del laboratorio")
+
+        if faltantes:
+            respuesta = messagebox.askyesno(
+                "Firmas pendientes",
+                (
+                    "Todavía faltan las siguientes firmas:\n\n• "
+                    + "\n• ".join(faltantes)
+                    + "\n\n¿Desea guardar el laboratorio "
+                    "sin esas firmas?"
+                ),
+                parent=self,
             )
 
-            try:
-                numero_estudiantes = int(
-                    self.numero_estudiantes.get().strip()
-                )
-
-                semestre = int(
-                    self.semestre.get().strip()
-                )
-
-                hora_entrada_norm = _normalizar_hora(
-                    self.hora_entrada.get()
-                )
-
-                hora_salida_norm = _normalizar_hora(
-                    self.hora_salida.get()
-                )
-
-            except ValueError as error:
-                messagebox.showerror(
-                    "Datos inválidos",
-                    (
-                        "Revise el semestre, el número de "
-                        "estudiantes y las horas.\n\n"
-                        f"{error}"
-                    ),
-                    parent=self,
-                )
+            if not respuesta:
                 return
 
-            if numero_estudiantes <= 0:
-                messagebox.showerror(
-                    "Error",
-                    (
-                        "El número de estudiantes debe "
-                        "ser mayor que cero."
-                    ),
-                    parent=self,
-                )
-                return
+        self._guardando = True
 
-            if semestre <= 0:
-                messagebox.showerror(
-                    "Error",
-                    "El semestre debe ser mayor que cero.",
-                    parent=self,
-                )
-                return
+        self._btn_guardar.configure(
+            state="disabled",
+            text="GUARDANDO, ESPERE...",
+        )
 
-            if hora_entrada_norm >= hora_salida_norm:
-                messagebox.showerror(
-                    "Horario inválido",
-                    (
-                        "La hora de salida debe ser posterior "
-                        "a la hora de entrada."
-                    ),
-                    parent=self,
-                )
-                return
+        threading.Thread(
+            target=self._procesar_guardado,
+            args=datos_validados,
+            daemon=True,
+            name="GuardarLaboratorio",
+        ).start()
 
-            nombre_laboratorio = self.laboratorio.get().strip()
-            nombre_docente = self.docente.get().strip()
+    def _procesar_guardado(
+        self,
+        numero_estudiantes,
+        semestre,
+        hora_entrada,
+        hora_salida,
+    ):
+        ruta_pdf = None
+        url_pdf = None
+        guardado_correcto = False
 
-            if not nombre_laboratorio:
-                messagebox.showerror(
-                    "Error",
-                    (
-                        "Debe seleccionar o escribir "
-                        "un laboratorio."
-                    ),
-                    parent=self,
-                )
-                return
-
-            if not self.asignatura.get().strip():
-                messagebox.showerror(
-                    "Error",
-                    "Debe ingresar la asignatura.",
-                    parent=self,
-                )
-                return
-
-            if not nombre_docente:
-                messagebox.showerror(
-                    "Error",
-                    (
-                        "Debe ingresar el docente "
-                        "responsable."
-                    ),
-                    parent=self,
-                )
-                return
-
-            if not self._encargado_actual:
-                messagebox.showerror(
-                    "Encargado no configurado",
-                    (
-                        "El laboratorio seleccionado no tiene "
-                        "un encargado registrado en Supabase."
-                    ),
-                    parent=self,
-                )
-                return
-
-            if not self._cargo_encargado_actual:
-                messagebox.showerror(
-                    "Cargo no configurado",
-                    (
-                        "El encargado del laboratorio no tiene "
-                        "un cargo registrado."
-                    ),
-                    parent=self,
-                )
-                return
-
-            materiales_lista = (
-                self.widget_materiales.obtener_items()
-            )
-
-            reactivos_lista = (
-                self.widget_reactivos.obtener_items()
-            )
-
-            estudiantes_lista = [
-                {
-                    "nombre": estudiante.get(
-                        "nombre"
-                    ),
-                    "cedula": estudiante.get(
-                        "cedula"
-                    ),
-                    "firma_ruta": estudiante.get(
-                        "firma_ruta"
-                    ),
-                }
-                for estudiante in self._estudiantes_firmados
-            ]
-
-            for linea in self.estudiantes.get(
-                "1.0",
-                "end",
-            ).splitlines():
-                linea = linea.strip()
-
-                if linea:
-                    estudiantes_lista.append(
-                        {
-                            "nombre": linea,
-                            "cedula": None,
-                            "firma_ruta": None,
-                        }
-                    )
-
-            laboratorio = Laboratorio(
-                codigo,
-                nombre_laboratorio,
+        try:
+            laboratorio = self._crear_objeto_laboratorio(
                 numero_estudiantes,
-                self.asignatura.get().strip(),
-                self.unidad_academica.get().strip(),
                 semestre,
-                self.carrera.get().strip(),
-                hora_entrada_norm,
-                hora_salida_norm,
-                self.institucion.get().strip(),
-                self.ciudad.get().strip(),
-                nombre_docente,
-                datetime.now().strftime(
-                    "%Y-%m-%d"
-                ),
-                self.tema.get(
-                    "1.0",
-                    "end",
-                ).strip(),
-                self.subtema.get(
-                    "1.0",
-                    "end",
-                ).strip(),
-                self.logro.get(
-                    "1.0",
-                    "end",
-                ).strip(),
-                self.objetivos.get(
-                    "1.0",
-                    "end",
-                ).strip(),
-                self.metodologia.get(
-                    "1.0",
-                    "end",
-                ).strip(),
-                self.resultados.get(
-                    "1.0",
-                    "end",
-                ).strip(),
-                self.conclusiones.get(
-                    "1.0",
-                    "end",
-                ).strip(),
-                self.observaciones.get(
-                    "1.0",
-                    "end",
-                ).strip(),
-                materiales=materiales_lista,
-                reactivos=reactivos_lista,
-                estudiantes=estudiantes_lista,
-                encargado_laboratorio=self._encargado_actual,
-                cargo_encargado=self._cargo_encargado_actual,
-                firma_encargado_ruta=(
-                    RUTA_FIRMA_ENCARGADO_LAB
-                    if os.path.isfile(
-                        RUTA_FIRMA_ENCARGADO_LAB
-                    )
-                    else None
-                ),
-                firma_docente_ruta=(
-                    RUTA_FIRMA_DOCENTE_LAB
-                    if os.path.isfile(
-                        RUTA_FIRMA_DOCENTE_LAB
-                    )
-                    else None
-                ),
-                codigo_sesion=self._codigo_sesion,
+                hora_entrada,
+                hora_salida,
             )
 
-            # Generar PDF local.
-            ruta_pdf = generar_pdf_laboratorio(
+            ruta_generada = generar_pdf_laboratorio(
                 laboratorio
             )
 
-            # Subir PDF a Supabase.
-            pdf_url = subir_pdf_laboratorio(
-                ruta_pdf
+            ruta_pdf = Path(
+                ruta_generada
+            ).resolve()
+
+            if not ruta_pdf.is_file():
+                raise RuntimeError(
+                    "El generador no creó el PDF del laboratorio."
+                )
+
+            url_pdf = subir_pdf_laboratorio(
+                str(ruta_pdf)
             )
 
-            laboratorio.pdf_url = pdf_url
+            laboratorio.pdf_url = url_pdf
 
-            # Guardar en PostgreSQL.
             resultado = guardar_laboratorio(
                 laboratorio
             )
 
-            if resultado:
-                messagebox.showinfo(
-                    "Correcto",
-                    (
-                        "Registro guardado correctamente.\n\n"
-                        "El PDF fue generado y subido "
-                        "a Supabase."
-                    ),
-                    parent=self,
+            if not resultado:
+                raise RuntimeError(
+                    "PostgreSQL no confirmó el registro "
+                    "del laboratorio."
                 )
 
-                self.destroy()
+            guardado_correcto = True
 
-            else:
-                messagebox.showerror(
-                    "Error",
-                    (
-                        "No fue posible guardar el registro "
-                        "en PostgreSQL."
-                    ),
-                    parent=self,
-                )
+            self.after(
+                0,
+                lambda: self._guardado_exitoso(
+                    url_pdf
+                ),
+            )
 
         except Exception as error:
-            print(
-                "\n========== ERROR GUARDANDO LABORATORIO =========="
-            )
-            print(error)
-            print(
-                "=================================================\n"
+            if url_pdf and not guardado_correcto:
+                eliminar_pdf_laboratorio_por_url(
+                    url_pdf
+                )
+
+            detalle = (
+                str(error).strip()
+                or error.__class__.__name__
             )
 
-            messagebox.showerror(
-                "Error",
-                str(error),
+            self.after(
+                0,
+                lambda mensaje=detalle: (
+                    self._guardado_fallido(mensaje)
+                ),
+            )
+
+        finally:
+            if ruta_pdf:
+                try:
+                    ruta_pdf.unlink(
+                        missing_ok=True
+                    )
+
+                    carpeta = ruta_pdf.parent
+
+                    if (
+                        carpeta.is_dir()
+                        and not any(carpeta.iterdir())
+                    ):
+                        carpeta.rmdir()
+
+                except OSError as error:
+                    print(
+                        "No se pudo eliminar el PDF temporal:",
+                        error,
+                    )
+
+    def _detener_polling(self):
+        self._polling_estudiantes_activo = False
+        self._polling_responsables_activo = False
+
+        for atributo in (
+            "_after_estudiantes",
+            "_after_responsables",
+        ):
+            after_id = getattr(
+                self,
+                atributo,
+                None,
+            )
+
+            if after_id is not None:
+                try:
+                    self.after_cancel(after_id)
+                except Exception:
+                    pass
+
+                setattr(
+                    self,
+                    atributo,
+                    None,
+                )
+
+    def _guardado_exitoso(self, url_pdf):
+        self._guardando = False
+
+        if not self.winfo_exists():
+            return
+
+        self._detener_polling()
+
+        try:
+            eliminar_firmas_sesion(
+                self._codigo_sesion,
+                incluir_estudiantes=True,
+            )
+        except Exception as error:
+            print(
+                "No se pudieron eliminar los temporales:",
+                error,
+            )
+
+        messagebox.showinfo(
+            "Laboratorio guardado",
+            (
+                "El laboratorio se guardó correctamente.\n\n"
+                "El PDF fue generado, subido a Supabase y "
+                "registrado en PostgreSQL.\n\n"
+                "Los archivos temporales fueron eliminados."
+            ),
+            parent=self,
+        )
+
+        self._cerrar_ventana(
+            confirmar=False,
+            eliminar_temporales=False,
+        )
+
+    def _guardado_fallido(self, detalle):
+        self._guardando = False
+
+        if not self.winfo_exists():
+            return
+
+        self._btn_guardar.configure(
+            state="normal",
+            text="⬤  GUARDAR REGISTRO",
+        )
+
+        messagebox.showerror(
+            "No se pudo guardar",
+            (
+                "No fue posible completar el registro "
+                "del laboratorio.\n\n"
+                f"Detalle:\n{detalle}\n\n"
+                "Las firmas de la sesión se conservarán "
+                "para que pueda volver a intentarlo."
+            ),
+            parent=self,
+        )
+
+    def _cerrar_ventana(
+        self,
+        confirmar=True,
+        eliminar_temporales=True,
+    ):
+        if self._cerrando:
+            return
+
+        if self._guardando:
+            messagebox.showwarning(
+                "Proceso en ejecución",
+                (
+                    "El laboratorio se está guardando. "
+                    "Espere a que el proceso termine."
+                ),
                 parent=self,
             )
+            return
+
+        if confirmar:
+            respuesta = messagebox.askyesno(
+                "Cerrar laboratorio",
+                (
+                    "¿Desea cerrar esta ventana?\n\n"
+                    "Las firmas temporales de esta sesión "
+                    "serán eliminadas."
+                ),
+                parent=self,
+            )
+
+            if not respuesta:
+                return
+
+        self._cerrando = True
+        self._detener_polling()
+
+        if eliminar_temporales:
+            try:
+                eliminar_firmas_sesion(
+                    self._codigo_sesion
+                )
+            except Exception as error:
+                print(
+                    "No se pudieron limpiar los temporales:",
+                    error,
+                )
+
+        self.destroy()

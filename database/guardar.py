@@ -5,8 +5,11 @@ def guardar_practica(practica):
     """
     Guarda una práctica en PostgreSQL.
 
-    El objeto practica debe contener previamente la URL pública del PDF
-    almacenado en Supabase dentro de practica.pdf_url.
+    Solamente almacena los datos de la práctica y la URL pública
+    del PDF subido a Supabase Storage.
+
+    Las firmas no se guardan en PostgreSQL. Solo se utilizan
+    temporalmente durante la generación del PDF.
 
     Devuelve:
         True  -> si la práctica fue guardada correctamente.
@@ -18,16 +21,22 @@ def guardar_practica(practica):
 
     try:
         if practica is None:
-            raise ValueError("El objeto práctica no puede ser None.")
+            raise ValueError(
+                "El objeto práctica no puede ser None."
+            )
 
-        pdf_url = str(practica.pdf_url or "").strip()
+        pdf_url = str(
+            practica.pdf_url or ""
+        ).strip()
 
         if not pdf_url:
             raise ValueError(
                 "La práctica no tiene una URL de PDF asociada."
             )
 
-        if not pdf_url.lower().startswith(("http://", "https://")):
+        if not pdf_url.lower().startswith(
+            ("http://", "https://")
+        ):
             raise ValueError(
                 "pdf_url debe contener una URL válida del PDF en línea."
             )
@@ -53,15 +62,13 @@ def guardar_practica(practica):
                 materiales_equipos,
                 descripcion_actividad,
                 evidencias,
-                pdf_url,
-                firma_docente,
-                firma_comision
+                pdf_url
             )
             VALUES (
                 %s, %s, %s, %s, %s,
                 %s, %s, %s, %s, %s,
                 %s, %s, %s, %s, %s,
-                %s, %s, %s, %s
+                %s, %s
             )
             RETURNING id
         """
@@ -84,32 +91,34 @@ def guardar_practica(practica):
             practica.descripcion_actividad,
             practica.evidencias,
             pdf_url,
-            practica.firma_docente,
-            practica.firma_comision,
         )
 
-        cursor.execute(sql, datos)
+        cursor.execute(
+            sql,
+            datos,
+        )
 
         practica_id = cursor.fetchone()[0]
 
-        # Guardar el id dentro del objeto si el modelo permite el atributo.
-        try:
-            practica.id = practica_id
-        except Exception:
-            pass
+        practica.id = practica_id
 
         conexion.commit()
 
         print(
-            f"Práctica guardada correctamente. ID: {practica_id}"
+            "Práctica guardada correctamente. "
+            f"ID: {practica_id}"
         )
 
         return True
 
-    except Exception as e:
-        print("\n========== ERROR AL GUARDAR PRÁCTICA ==========")
-        print(e)
-        print("================================================\n")
+    except Exception as error:
+        print(
+            "\n========== ERROR AL GUARDAR PRÁCTICA =========="
+        )
+        print(error)
+        print(
+            "================================================\n"
+        )
 
         if conexion:
             conexion.rollback()

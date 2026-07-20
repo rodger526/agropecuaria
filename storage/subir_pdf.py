@@ -7,14 +7,13 @@ from supabase import create_client
 
 
 # ============================================================
-# Cargar configuración desde el .env de la raíz
+# Configuración
 # ============================================================
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 RUTA_ENV = BASE_DIR / ".env"
 
 load_dotenv(RUTA_ENV)
-
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
@@ -24,11 +23,6 @@ CARPETA = "practicas"
 
 
 def _validar_configuracion():
-    """
-    Comprueba que existan las variables necesarias para utilizar
-    Supabase Storage.
-    """
-
     faltantes = []
 
     if not SUPABASE_URL:
@@ -55,10 +49,6 @@ def _validar_configuracion():
 
 
 def _crear_cliente():
-    """
-    Crea el cliente de Supabase después de validar la configuración.
-    """
-
     _validar_configuracion()
 
     return create_client(
@@ -67,21 +57,15 @@ def _crear_cliente():
     )
 
 
+# ============================================================
+# Subir PDF
+# ============================================================
+
 def subir_pdf(ruta_pdf):
     """
-    Sube un PDF al bucket configurado en Supabase Storage.
+    Sube un PDF a Supabase Storage.
 
-    El archivo se almacena dentro de:
-
-        practicas/nombre_archivo.pdf
-
-    Devuelve:
-        URL pública del PDF.
-
-    Lanza:
-        FileNotFoundError si el archivo local no existe.
-        ValueError si el archivo no es PDF.
-        RuntimeError si la subida o la URL pública fallan.
+    Devuelve la URL pública.
     """
 
     if not ruta_pdf:
@@ -98,7 +82,7 @@ def subir_pdf(ruta_pdf):
 
     if ruta_pdf.suffix.lower() != ".pdf":
         raise ValueError(
-            "El archivo seleccionado no tiene extensión PDF."
+            "El archivo seleccionado no es un PDF."
         )
 
     cliente = _crear_cliente()
@@ -107,8 +91,7 @@ def subir_pdf(ruta_pdf):
     ruta_storage = f"{CARPETA}/{nombre_archivo}"
 
     try:
-        with ruta_pdf.open("rb") as archivo:
-            contenido = archivo.read()
+        contenido = ruta_pdf.read_bytes()
 
         cliente.storage.from_(BUCKET).upload(
             path=ruta_storage,
@@ -121,7 +104,9 @@ def subir_pdf(ruta_pdf):
 
         url_publica = cliente.storage.from_(
             BUCKET
-        ).get_public_url(ruta_storage)
+        ).get_public_url(
+            ruta_storage
+        )
 
         if isinstance(url_publica, dict):
             url_publica = (
@@ -129,7 +114,9 @@ def subir_pdf(ruta_pdf):
                 or url_publica.get("public_url")
             )
 
-        url_publica = str(url_publica or "").strip()
+        url_publica = str(
+            url_publica or ""
+        ).strip()
 
         if not url_publica.lower().startswith(
             ("http://", "https://")
@@ -144,35 +131,43 @@ def subir_pdf(ruta_pdf):
 
         return url_publica
 
-    except Exception as e:
+    except Exception as error:
         raise RuntimeError(
-            f"No fue posible subir el PDF a Supabase:\n{e}"
-        ) from e
+            f"No fue posible subir el PDF a Supabase:\n{error}"
+        ) from error
 
+
+# ============================================================
+# Obtener ruta interna desde URL
+# ============================================================
 
 def obtener_ruta_storage_desde_url(pdf_url):
     """
-    Extrae la ruta interna de Storage desde una URL pública.
+    Convierte una URL pública de Supabase en su ruta interna.
 
     Ejemplo:
 
-        URL:
-        https://proyecto.supabase.co/storage/v1/object/public/
-        pdfs/practicas/PRA-001.pdf
+    URL:
+    https://xxxxx.supabase.co/storage/v1/object/public/
+    pdfs/practicas/PRA-001.pdf
 
-        Resultado:
-        practicas/PRA-001.pdf
+    Resultado:
+    practicas/PRA-001.pdf
     """
 
     if not pdf_url:
         return None
 
-    pdf_url = str(pdf_url).strip()
-
     try:
-        ruta_url = unquote(urlparse(pdf_url).path)
+        ruta_url = unquote(
+            urlparse(
+                str(pdf_url).strip()
+            ).path
+        )
 
-        marcador = f"/storage/v1/object/public/{BUCKET}/"
+        marcador = (
+            f"/storage/v1/object/public/{BUCKET}/"
+        )
 
         if marcador not in ruta_url:
             return None
@@ -188,13 +183,17 @@ def obtener_ruta_storage_desde_url(pdf_url):
         return None
 
 
+# ============================================================
+# Eliminar PDF
+# ============================================================
+
 def eliminar_pdf(pdf_url):
     """
-    Elimina de Supabase Storage un PDF mediante su URL pública.
+    Elimina un PDF de Supabase Storage mediante su URL pública.
 
     Devuelve:
-        True  -> archivo eliminado o URL vacía.
-        False -> no se pudo determinar o eliminar el archivo.
+        True si fue eliminado.
+        False si ocurrió un error.
     """
 
     if not pdf_url:
@@ -223,9 +222,13 @@ def eliminar_pdf(pdf_url):
 
         return True
 
-    except Exception as e:
-        print("\n====== ERROR ELIMINANDO PDF DE SUPABASE ======")
-        print(e)
-        print("==============================================\n")
+    except Exception as error:
+        print(
+            "\n====== ERROR ELIMINANDO PDF DE SUPABASE ======"
+        )
+        print(error)
+        print(
+            "==============================================\n"
+        )
 
         return False

@@ -1,7 +1,19 @@
 from database.conexion import obtener_conexion
 
 
-def actualizar_practica(
+_ULTIMO_ERROR = ""
+
+
+def _guardar_error(error):
+    global _ULTIMO_ERROR
+    _ULTIMO_ERROR = str(error or "").strip()
+
+
+def obtener_ultimo_error():
+    return _ULTIMO_ERROR
+
+
+def actualizar_datos_practica(
     id_practica,
     codigo,
     carrera,
@@ -19,37 +31,152 @@ def actualizar_practica(
     materiales_equipos,
     descripcion_actividad,
     evidencias,
-    pdf_url,
-    firma_docente=None,
-    firma_comision=None,
 ):
     """
-    Actualiza los datos principales de una práctica.
+    Actualiza solo datos editables.
 
-    Las firmas se conservan si firma_docente o firma_comision llegan
-    como None, gracias al uso de COALESCE.
-
-    Devuelve:
-        True  -> actualización correcta.
-        False -> error o práctica inexistente.
+    No modifica:
+    - codigo
+    - pdf_url
+    - firma_docente
+    - firma_comision
     """
+
+    global _ULTIMO_ERROR
+    _ULTIMO_ERROR = ""
 
     conexion = None
     cursor = None
 
     try:
-        if id_practica is None:
+        conexion = obtener_conexion()
+        cursor = conexion.cursor()
+
+        cursor.execute(
+            """
+            UPDATE practicas
+            SET
+                carrera = %s,
+                semestre = %s,
+                asignatura = %s,
+                unidad_silabo = %s,
+                tipo_practica = %s,
+                ingeniero_revisor = %s,
+                lugar_ejecucion = %s,
+                semana_planificada = %s,
+                tema_practica = %s,
+                resultado_aprendizaje = %s,
+                articulacion_curricular = %s,
+                objetivo_general = %s,
+                materiales_equipos = %s,
+                descripcion_actividad = %s,
+                evidencias = %s
+            WHERE id = %s
+            RETURNING id
+            """,
+            (
+                carrera,
+                semestre,
+                asignatura,
+                unidad_silabo,
+                tipo_practica,
+                ingeniero_revisor,
+                lugar_ejecucion,
+                semana_planificada,
+                tema_practica,
+                resultado_aprendizaje,
+                articulacion_curricular,
+                objetivo_general,
+                materiales_equipos,
+                descripcion_actividad,
+                evidencias,
+                id_practica,
+            ),
+        )
+
+        fila = cursor.fetchone()
+
+        if not fila:
             raise ValueError(
-                "El id de la práctica no puede ser None."
+                f"No existe una práctica con id {id_practica}."
+            )
+
+        conexion.commit()
+        return True
+
+    except Exception as error:
+        _guardar_error(error)
+
+        if conexion:
+            conexion.rollback()
+
+        print("\nERROR AL ACTUALIZAR PRÁCTICA")
+        print(error)
+        return False
+
+    finally:
+        if cursor:
+            cursor.close()
+
+        if conexion:
+            conexion.close()
+
+
+def actualizar_con_firma_comision(
+    id_practica,
+    carrera,
+    semestre,
+    asignatura,
+    unidad_silabo,
+    tipo_practica,
+    ingeniero_revisor,
+    lugar_ejecucion,
+    semana_planificada,
+    tema_practica,
+    resultado_aprendizaje,
+    articulacion_curricular,
+    objetivo_general,
+    materiales_equipos,
+    descripcion_actividad,
+    evidencias,
+    nueva_pdf_url,
+    nueva_firma_comision_url,
+):
+    """
+    Actualiza datos, pdf_url y firma_comision en una sola transacción.
+
+    La condición del WHERE impide reemplazar una firma de comisión
+    que ya exista.
+    """
+
+    global _ULTIMO_ERROR
+    _ULTIMO_ERROR = ""
+
+    conexion = None
+    cursor = None
+
+    try:
+        if not str(nueva_pdf_url or "").startswith(
+            ("http://", "https://")
+        ):
+            raise ValueError(
+                "La URL del PDF actualizado no es válida."
+            )
+
+        if not str(nueva_firma_comision_url or "").startswith(
+            ("http://", "https://")
+        ):
+            raise ValueError(
+                "La URL de la firma de comisión no es válida."
             )
 
         conexion = obtener_conexion()
         cursor = conexion.cursor()
 
-        cursor.execute("""
+        cursor.execute(
+            """
             UPDATE practicas
             SET
-                codigo = %s,
                 carrera = %s,
                 semestre = %s,
                 asignatura = %s,
@@ -66,53 +193,76 @@ def actualizar_practica(
                 descripcion_actividad = %s,
                 evidencias = %s,
                 pdf_url = %s,
-                firma_docente = COALESCE(%s, firma_docente),
-                firma_comision = COALESCE(%s, firma_comision)
+                firma_comision = %s
             WHERE id = %s
-        """, (
-            codigo,
-            carrera,
-            semestre,
-            asignatura,
-            unidad_silabo,
-            tipo_practica,
-            ingeniero_revisor,
-            lugar_ejecucion,
-            semana_planificada,
-            tema_practica,
-            resultado_aprendizaje,
-            articulacion_curricular,
-            objetivo_general,
-            materiales_equipos,
-            descripcion_actividad,
-            evidencias,
-            pdf_url,
-            firma_docente,
-            firma_comision,
-            id_practica,
-        ))
+              AND (
+                    firma_comision IS NULL
+                    OR BTRIM(firma_comision) = ''
+                  )
+            RETURNING id
+            """,
+            (
+                carrera,
+                semestre,
+                asignatura,
+                unidad_silabo,
+                tipo_practica,
+                ingeniero_revisor,
+                lugar_ejecucion,
+                semana_planificada,
+                tema_practica,
+                resultado_aprendizaje,
+                articulacion_curricular,
+                objetivo_general,
+                materiales_equipos,
+                descripcion_actividad,
+                evidencias,
+                nueva_pdf_url,
+                nueva_firma_comision_url,
+                id_practica,
+            ),
+        )
 
-        if cursor.rowcount == 0:
-            raise ValueError(
-                f"No existe una práctica con id {id_practica}."
+        fila = cursor.fetchone()
+
+        if not fila:
+            cursor.execute(
+                """
+                SELECT firma_comision
+                FROM practicas
+                WHERE id = %s
+                """,
+                (id_practica,),
+            )
+
+            existente = cursor.fetchone()
+
+            if not existente:
+                raise ValueError(
+                    f"No existe una práctica con id {id_practica}."
+                )
+
+            if str(existente[0] or "").strip():
+                raise ValueError(
+                    "La práctica ya posee una firma de comisión. "
+                    "No puede sustituirse."
+                )
+
+            raise RuntimeError(
+                "PostgreSQL no confirmó la actualización."
             )
 
         conexion.commit()
-
-        print(
-            f"Práctica {id_practica} actualizada correctamente."
-        )
-
         return True
 
-    except Exception as e:
-        print("\n========== ERROR AL ACTUALIZAR PRÁCTICA ==========")
-        print(e)
-        print("===================================================\n")
+    except Exception as error:
+        _guardar_error(error)
 
         if conexion:
             conexion.rollback()
 
+        print("\nERROR AL ACTUALIZAR PDF Y FIRMA")
+        print(error)
         return False
 
     finally:
@@ -123,136 +273,56 @@ def actualizar_practica(
             conexion.close()
 
 
-def actualizar_firma_comision(id_practica, ruta_firma):
-    """
-    Actualiza únicamente la firma de la comisión.
-
-    Actualmente ruta_firma puede ser una ruta local. Para que funcione
-    desde distintas computadoras, lo recomendable es subir también la
-    firma a Supabase Storage y guardar su URL.
-    """
+def obtener_estado_firmas(id_practica):
+    global _ULTIMO_ERROR
+    _ULTIMO_ERROR = ""
 
     conexion = None
     cursor = None
 
     try:
-        if id_practica is None:
-            raise ValueError(
-                "El id de la práctica no puede ser None."
-            )
-
-        if not ruta_firma:
-            raise ValueError(
-                "La ruta de la firma no puede estar vacía."
-            )
-
         conexion = obtener_conexion()
         cursor = conexion.cursor()
 
-        cursor.execute("""
-            UPDATE practicas
-            SET firma_comision = %s
+        cursor.execute(
+            """
+            SELECT
+                firma_docente,
+                firma_comision,
+                pdf_url,
+                codigo
+            FROM practicas
             WHERE id = %s
-        """, (
-            ruta_firma,
-            id_practica,
-        ))
-
-        if cursor.rowcount == 0:
-            raise ValueError(
-                f"No existe una práctica con id {id_practica}."
-            )
-
-        conexion.commit()
-
-        print(
-            f"Firma de comisión actualizada para la práctica {id_practica}."
+            """,
+            (id_practica,),
         )
 
-        return True
+        fila = cursor.fetchone()
 
-    except Exception as e:
-        print("\n===== ERROR AL ACTUALIZAR FIRMA DE COMISIÓN =====")
-        print(e)
-        print("==================================================\n")
+        if not fila:
+            return {
+                "firma_docente": None,
+                "firma_comision": None,
+                "pdf_url": None,
+                "codigo": None,
+            }
 
-        if conexion:
-            conexion.rollback()
+        return {
+            "firma_docente": fila[0],
+            "firma_comision": fila[1],
+            "pdf_url": fila[2],
+            "codigo": fila[3],
+        }
 
-        return False
+    except Exception as error:
+        _guardar_error(error)
 
-    finally:
-        if cursor:
-            cursor.close()
-
-        if conexion:
-            conexion.close()
-
-
-def actualizar_pdf_url(id_practica, nueva_url):
-    """
-    Actualiza únicamente el campo pdf_url de una práctica.
-
-    Se usa después de regenerar y subir el PDF a Supabase Storage.
-    """
-
-    conexion = None
-    cursor = None
-
-    try:
-        if id_practica is None:
-            raise ValueError(
-                "El id de la práctica no puede ser None."
-            )
-
-        nueva_url = str(nueva_url or "").strip()
-
-        if not nueva_url:
-            raise ValueError(
-                "La URL del PDF está vacía."
-            )
-
-        if not nueva_url.lower().startswith(
-            ("http://", "https://")
-        ):
-            raise ValueError(
-                "La URL del PDF no tiene un formato válido."
-            )
-
-        conexion = obtener_conexion()
-        cursor = conexion.cursor()
-
-        cursor.execute("""
-            UPDATE practicas
-            SET pdf_url = %s
-            WHERE id = %s
-        """, (
-            nueva_url,
-            id_practica,
-        ))
-
-        if cursor.rowcount == 0:
-            raise ValueError(
-                f"No existe una práctica con id {id_practica}."
-            )
-
-        conexion.commit()
-
-        print(
-            f"URL del PDF actualizada para la práctica {id_practica}."
-        )
-
-        return True
-
-    except Exception as e:
-        print("\n========== ERROR ACTUALIZANDO PDF URL ==========")
-        print(e)
-        print("=================================================\n")
-
-        if conexion:
-            conexion.rollback()
-
-        return False
+        return {
+            "firma_docente": None,
+            "firma_comision": None,
+            "pdf_url": None,
+            "codigo": None,
+        }
 
     finally:
         if cursor:

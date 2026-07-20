@@ -1,5 +1,5 @@
 import customtkinter as ctk
-
+from views.dashboard.dashboard_principal import VentanaDashboard
 from views.buscar_informe import VentanaBuscarInforme
 from views.buscar_laboratorio import VentanaBuscarLaboratorio
 from views.buscar_practica import VentanaBuscar
@@ -163,7 +163,7 @@ class _MenuCard(ctk.CTkFrame):
 
 class App(ctk.CTk):
     """
-    Ventana principal del Sistema de Prácticas.
+    Ventana principal del Sistema Integrado de Gestión de Prácticas Académicas.
     """
 
     ANCHO = 1000
@@ -173,7 +173,7 @@ class App(ctk.CTk):
         super().__init__()
 
         self.title(
-            "Sistema de Prácticas"
+            "Sistema Integrado de Gestión de Prácticas Académicas"
         )
 
         self.geometry(
@@ -279,6 +279,12 @@ class App(ctk.CTk):
         )
 
         acciones = (
+            (
+                "📊",
+                "Centro de estadísticas",
+                "Indicadores generales y dashboards del sistema",
+                self._abrir_dashboard,
+            ),
             (
                 "📋",
                 "Nueva planificación",
@@ -407,6 +413,11 @@ class App(ctk.CTk):
 
         except Exception:
             pass
+        
+    def _abrir_dashboard(self):
+        self._abrir_subventana(
+            VentanaDashboard
+        )
 
     def _abrir_nueva_practica(self):
         self._abrir_subventana(
