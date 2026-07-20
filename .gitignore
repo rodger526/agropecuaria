@@ -1,7 +1,28 @@
+# Variables de entorno
 .env
+
+# Python
 __pycache__/
 *.pyc
+
+# Compilaciones
+build/
+dist/
+*.spec
+
+# Archivos temporales
+actualizacion_temporal.exe
+
+# PDFs generados
 pdfs_planificacion/
 pdfs_laboratorio/
+
+# Firmas
 firma/firmas/
 firma/sesiones/
+
+# Cache de VS Code
+.vscode/
+
+# Logs
+*.log
